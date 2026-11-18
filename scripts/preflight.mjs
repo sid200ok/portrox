@@ -6,7 +6,7 @@ const need = [
   'package.json','.gitignore','.env.example','README.md','LICENSE','.gitleaks.toml','.pre-commit-config.yaml',
   '.github/workflows/security.yml','.github/workflows/publish-site.yml',
   'packages/cli/portrox.mjs','packages/cli/studio-daemon.mjs','packages/cli/config-store.mjs',
-  'packages/cli/auth-store.mjs','packages/cli/studio-ui.mjs','packages/cli/db-bridge.mjs',
+  'packages/cli/auth-store.mjs','packages/cli/studio-ui.mjs','packages/cli/db-bridge.mjs','packages/cli/supabase-mgmt.mjs',
   'packages/core/render.mjs','packages/core/portrox.css','packages/core/forms.js',
   'packages/core/system-pages/about-website.md',
   'packages/database/migrations/0001_init.sql',
@@ -86,8 +86,10 @@ if (existsSync(cfgPath)) {
   let c = {};
   try { c = JSON.parse(readFileSync(cfgPath, 'utf8')); } catch { bad++; console.log('FAIL config.json unparsable'); }
   const s = c.supabase || {}, g = c.github || {};
-  console.log('UI config: supabase=' + (s.url ? 'set' : 'EMPTY') + ' ref=' + (s.project_ref || '-') + ' db_password=' + (s.db_password ? 'set' : 'EMPTY') + ' db_ok=' + Boolean(s.db_ok) + ' mode=' + (s.db_mode || '-') + ' github=' + (g.login || 'EMPTY'));
-  if (s.db_password && !s.db_host) { bad++; console.log('FAIL db password set but host not derived'); }
+  const pj = Object.values(s.projects || {});
+  console.log('UI config: sb_token=' + (s.access_token ? 'set' : 'EMPTY') + ' orgs=' + (s.orgs || []).length + ' projects=' + pj.length + ' default=' + (s.default_project_ref || '-') + ' github=' + (g.login || 'EMPTY'));
+  for (const q of pj) console.log('  project ' + q.ref + ' status=' + (q.status || '?') + ' key=' + (q.publishable_key ? 'yes' : 'no') + ' schema=' + ((q.schema_applied || []).length) + ' files');
+
   if (s.publishable_key && /^sb_(secret|service)_/.test(s.publishable_key)) { bad++; console.log('FAIL secret key in UI store'); }
 } else {
   console.log('UI config: NOT CREATED — open the Studio and complete Setup');

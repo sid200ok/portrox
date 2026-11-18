@@ -457,6 +457,32 @@ function vStudio(){
       +'<h4 class="sec" style="margin-top:16px">Theme</h4><div class="sw">'
       +['bg','panel','accent'].map(function(k){return '<i title="'+h(k)+' '+h(th[k]||'')+'" style="background:'+h(th[k]||'#000')+'"></i>'}).join('')+'</div>'
       +'</div></div>'
+      +'<div class="hr"></div>'
+      +'<h4 class="sec">Database</h4>'
+      +(function(){
+        var db=(c.database||{}),pjs=((S.cfg&&S.cfg.supabase&&S.cfg.supabase.projects)||[]);
+        var cur=pjs.filter(function(x){return x.ref===db.project_ref})[0];
+        var opts=pjs.map(function(x){return '<option value="'+h(x.ref)+'"'+(db.project_ref===x.ref?' selected':'')+'>'+h(x.name||x.ref)+' · '+h(x.ref)+'</option>'}).join('');
+        return '<div class="grid g2"><div>'
+          +'<div class="field"><label>Isolation mode</label><select class="inp" id="db-mode">'
+          +'<option value="shared"'+(db.mode!=='dedicated'?' selected':'')+'>shared — one project, many sites (unlimited, free)</option>'
+          +'<option value="dedicated"'+(db.mode==='dedicated'?' selected':'')+'>dedicated — one project per site (2 free max)</option></select></div>'
+          +'<div class="field"><label>Supabase project</label><select class="inp" id="db-ref"><option value="">— select —</option>'+opts+'</select>'
+          +'<p class="hint">Each site binds exactly one project. The renderer injects that project URL and publishable key at build time.</p></div>'
+          +'<div class="row wrap"><button class="btn pri" data-act="dbbind" data-id="'+h(sel.id)+'">Bind database</button>'
+          +'<button class="btn" data-act="pnew" data-site="'+h(sel.id)+'">'+ic('plus')+'<span>New project</span></button></div>'
+          +'</div><div><dl class="kv">'
+          +'<dt>Bound ref</dt><dd class="mono">'+h(db.project_ref||'—')+'</dd>'
+          +'<dt>Project URL</dt><dd class="mono">'+h((cur&&cur.url)||'—')+'</dd>'
+          +'<dt>Status</dt><dd>'+h((cur&&cur.status)||'—')+'</dd>'
+          +'<dt>Publishable key</dt><dd>'+(cur&&cur.has_key?'····'+h(cur.key_tail):'none')+'</dd>'
+          +'<dt>Schema</dt><dd>'+(cur&&cur.schema_complete?(cur.schema_applied.length+' files via '+h(cur.schema_via||'')):'not applied')+'</dd>'
+          +'</dl><div class="row wrap" style="margin-top:12px">'
+          +'<button class="btn" data-act="dbkey" data-id="'+h(sel.id)+'">Fetch key</button>'
+          +'<button class="btn" data-act="dbapply" data-id="'+h(sel.id)+'">Apply schema</button>'
+          +'<button class="btn" data-act="dbhealth" data-id="'+h(sel.id)+'">Health</button>'
+          +'</div></div></div>';
+      })()
       +'<div class="hr"></div><div class="row wrap">'
       +'<button class="btn" data-act="build" data-id="'+h(sel.id)+'">'+ic('play')+'<span>Build</span></button>'
       +'<button class="btn" data-act="register" data-id="'+h(sel.id)+'">'+ic('db')+'<span>Register</span></button>'
@@ -484,9 +510,39 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['supabase','db','Supabase'],['github','git','GitHub'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
-  if(S.sub==='supabase'){
+  if(S.sub==='account'){
+    var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
+    body='<div class="card"><header><h3>Supabase account</h3>'+(ac.configured?'<span class="pill ok"><span class="dot"></span>Connected</span>':'<span class="pill mute">Not connected</span>')+'</header>'
+      +'<p class="desc">One account token drives every project. Create a personal access token at supabase.com/dashboard/account/tokens. A scoped token needs organisation read, project create, and database write permissions.</p>'
+      +'<form id="f-sbtok"><div class="field"><label>Personal access token</label><div class="pw"><input class="inp mono" id="sb-tok" type="password" placeholder="sbp_…" autocomplete="off"></div>'
+      +'<p class="hint">'+(ac.configured?'Stored token ends ·'+h(ac.token_tail)+'. Paste a new one to replace it.':'The token is stored locally at 0600 and never sent back to this page.')+'</p></div>'
+      +'<button class="btn pri" type="submit" data-act="sbtoken">Validate and load projects</button></form>'
+      +(ac.error?'<div class="alert err" style="margin-top:14px">'+h(ac.error)+'</div>':'')
+      +(ac.configured?'<div class="hr"></div><div class="row wrap"><button class="btn" data-act="sbrefresh">'+ic('refresh')+'<span>Refresh projects</span></button><button class="btn danger" data-act="sbforget">Forget token</button></div>':'')
+      +'</div>'
+      +'<div class="card" style="margin-top:14px"><header><h3>Organisations</h3><span class="pill mute">'+orgs.length+'</span></header>'
+      +(orgs.length?'<div class="tblwrap"><table><thead><tr><th>Name</th><th>Slug</th></tr></thead><tbody>'
+        +orgs.map(function(o){return '<tr><td>'+h(o.name)+'</td><td class="mono">'+h(o.slug)+'</td></tr>'}).join('')
+        +'</tbody></table></div>':'<p class="note">Validate the token to load organisations.</p>')+'</div>'
+      +'<div class="card" style="margin-top:14px"><header><h3>Projects</h3><span class="pill '+((sb.active_count||0)>=(sb.free_limit||2)?'warn':'acc')+'">'+(sb.active_count||0)+' active / '+(sb.free_limit||2)+' free</span></header>'
+      +'<div class="alert warn">The Supabase Free plan allows '+(sb.free_limit||2)+' active projects, and free projects pause after one week of inactivity. For unlimited sites use <b>shared</b> mode: one project, many tenants separated by site_id and row level security.</div>'
+      +(pjs.length?'<div class="tblwrap"><table><thead><tr><th>Project</th><th>Region</th><th>Status</th><th>Key</th><th>Schema</th><th></th></tr></thead><tbody>'
+        +pjs.map(function(p){return '<tr><td><div class="name">'+h(p.name||p.ref)+'</div><div class="sub mono">'+h(p.ref)+'</div></td>'
+          +'<td class="mono">'+h(p.region||'—')+'</td>'
+          +'<span></span><td>'+(/ACTIVE_HEALTHY/.test(p.status||'')?'<span class="pill ok"><span class="dot"></span>Healthy</span>':'<span class="pill mute">'+h(p.status||'?')+'</span>')+'</td>'
+          +'<td>'+(p.has_key?'<span class="pill ok">····'+h(p.key_tail)+'</span>':'<span class="pill warn">none</span>')+'</td>'
+          +'<td>'+(p.schema_complete?'<span class="pill ok">'+p.schema_applied.length+' files</span>':'<span class="pill warn">not applied</span>')+'</td>'
+          +'<td class="act"><button class="btn sm" data-act="pkey" data-ref="'+h(p.ref)+'">Key</button>'
+          +'<button class="btn sm" data-act="pschema" data-ref="'+h(p.ref)+'">Schema</button>'
+          +'<button class="btn sm" data-act="phealth" data-ref="'+h(p.ref)+'">Health</button>'
+          +'<button class="btn sm'+(ac.default_project_ref===p.ref?' pri':'')+'" data-act="pdefault" data-ref="'+h(p.ref)+'">Default</button></td></tr>'}).join('')
+        +'</tbody></table></div>'
+        +'<div class="hr"></div><button class="btn pri" data-act="pnew">'+ic('plus')+'<span>Create project</span></button>'
+        :'<p class="note">No projects loaded yet.</p>')
+      +'</div>';
+  } else if(S.sub==='supabase'){
     var regions=sb.regions||[];
     body='<div class="card"><header><h3>Supabase project</h3>'+(sb.configured?'<span class="pill ok"><span class="dot"></span>Saved</span>':'<span class="pill mute">Not set</span>')+'</header>'
       +'<p class="desc">Three values only. The connection string is <b>derived for you</b> from the project reference — you never type a DSN. The publishable key is public and is the only key that reaches a rendered site.</p>'
@@ -604,6 +660,19 @@ function act(a,id,btn){
   if(a==='recq')return recQModal();
   if(a==='reck')return recKModal();
   if(a==='signout')return api('/api/auth/logout',{}).then(function(){location.reload()}).catch(function(){location.reload()});
+  if(a==='sbtoken'){var f=$('f-sbtok');if(f){busy(f,true);}logline('validating Supabase access token …');
+    return api('/api/supabase/token',{access_token:$('sb-tok').value}).then(function(c){S.cfg=c;toast('Supabase account connected. '+c.supabase.project_count+' project(s).','ok');logline('supabase account ok projects='+c.supabase.project_count,'ok');render()}).catch(function(x){toast(x.message,'err');logline('supabase token: '+x.message,'err');render()})};
+  if(a==='sbrefresh')return api('/api/supabase/refresh',{}).then(function(c){S.cfg=c;toast('Projects refreshed.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='sbforget')return api('/api/supabase/forget',{}).then(function(c){S.cfg=c;toast('Supabase token removed.','info');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='pdefault')return api('/api/supabase/default',{ref:btn.getAttribute('data-ref')}).then(function(c){S.cfg=c;toast('Default project set.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='pkey'||a==='pschema'||a==='phealth'){var ref=btn.getAttribute('data-ref');var ep=a==='pkey'?'key':(a==='pschema'?'schema':'health');
+    btn.disabled=true;btn.classList.add('busy');logline(a+' '+ref+' …');
+    return api('/api/supabase/projects/'+ref+'/'+ep,{}).then(function(j){logline(a+' '+ref+' OK '+JSON.stringify(j),'ok');toast(a+' succeeded','ok');return api('/api/config').then(function(c){S.cfg=c;render()})}).catch(function(x){logline(a+' '+ref+' FAILED: '+x.message,'err');toast(x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})};
+  if(a==='dbbind')return api('/api/sites/'+encodeURIComponent(id)+'/db',{mode:$('db-mode').value,project_ref:$('db-ref').value}).then(function(j){toast('Database bound: '+j.database.project_ref,'ok');logline('db bind '+id+' -> '+j.database.project_ref,'ok');return load()}).catch(function(x){toast(x.message,'err')});
+  if(a==='dbkey'||a==='dbapply'||a==='dbhealth'){var ep2=a==='dbkey'?'db/key':(a==='dbapply'?'db/apply':'db/health');
+    btn.disabled=true;btn.classList.add('busy');logline(a+' '+id+' …');
+    return api('/api/sites/'+encodeURIComponent(id)+'/'+ep2,{}).then(function(j){logline(a+' '+id+' OK '+JSON.stringify(j),'ok');toast(a+' succeeded','ok');return load()}).catch(function(x){logline(a+' '+id+' FAILED: '+x.message,'err');toast(x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})};
+  if(a==='pnew')return newProjectModal(btn.getAttribute('data-site'));
   if(a==='dbtest'){if(btn){btn.disabled=true;btn.classList.add('busy')}logline('testing database connection …');
     return api('/api/config/test-db',{}).then(function(c){S.cfg=c;var d=c.supabase;
       if(d.db_ok){toast('Database reachable via '+d.db_mode+' ('+d.server_version+')','ok');logline('database OK mode='+d.db_mode+' server='+d.server_version,'ok')}
@@ -632,6 +701,35 @@ function newSite(){
       $('ns-mode').onchange=hint;hint();$('ns-name').focus();
       $('ns-ok').onclick=function(){var b=$('ns-ok');b.disabled=true;b.textContent='Creating…';
         api('/api/sites',{name:$('ns-name').value,headline:$('ns-head').value,mode:$('ns-mode').value}).then(function(j){close();toast('Created '+j.id,'ok');logline('created '+j.id,'ok');S.sel=j.id;return load()}).catch(function(x){var e=$('ns-err');e.textContent=x.message;e.classList.remove('hide');b.disabled=false;b.textContent='Create site'})};
+    }});
+}
+function newProjectModal(siteId){
+  var ac=(S.cfg&&S.cfg.supabase&&S.cfg.supabase.account)||{},orgs=ac.orgs||[],groups=(S.cfg&&S.cfg.supabase&&S.cfg.supabase.smart_groups)||['americas','emea','apac'];
+  modal({title:'Create Supabase project',sub:'One project per site in dedicated mode. Free plan allows 2 active projects.',wide:true,
+    body:'<div id="np-err" class="alert err hide"></div>'
+      +'<div class="alert warn">The database password is generated for you and shown <b>once</b>. Supabase cannot change it programmatically afterwards.</div>'
+      +'<div class="field"><label>Project name</label><input class="inp" id="np-name" placeholder="portrox-client-x"></div>'
+      +'<div class="field"><label>Organisation</label><select class="inp" id="np-org">'+orgs.map(function(o){return '<option value="'+h(o.slug)+'">'+h(o.name)+' · '+h(o.slug)+'</option>'}).join('')+'</select></div>'
+      +'<div class="field"><label>Region group</label><select class="inp" id="np-region">'+groups.map(function(g){return '<option value="'+h(g)+'"'+(g==='apac'?' selected':'')+'>'+h(g)+'</option>'}).join('')+'</select>'
+      +'<p class="hint">Smart region selection picks a zone with capacity inside the group.</p></div>'
+      +'<label class="check"><input type="checkbox" id="np-store"><span>Remember the password locally (only needed for the psql fallback)</span></label>'
+      +'<div id="np-out" class="hide"><div class="alert ok">Project created. Copy the password now — it cannot be shown again.</div><pre class="log" id="np-pass" style="max-height:none;font-size:14px;text-align:center"></pre><pre class="log" id="np-meta" style="max-height:none"></pre></div>',
+    footer:'<button class="btn ghost" id="np-c">Close</button><button class="btn pri" id="np-go">Create project</button>',
+    onMount:function(close){
+      $('np-c').onclick=close;
+      $('np-go').onclick=function(){
+        var e=$('np-err');e.classList.add('hide');var b=$('np-go');b.disabled=true;b.textContent='Provisioning…';
+        logline('creating Supabase project …');
+        api('/api/supabase/projects',{name:$('np-name').value,organization_slug:$('np-org').value,region_code:$('np-region').value,store_password:$('np-store').checked,site_id:siteId||null})
+          .then(function(j){
+            $('np-pass').textContent=j.db_password_once;
+            $('np-meta').textContent=JSON.stringify({ref:j.ref,status:j.status,healthy:j.healthy,waited_seconds:j.waited_seconds,key:j.key,schema:j.schema},null,2);
+            $('np-out').classList.remove('hide');b.classList.add('hide');
+            logline('project '+j.ref+' status='+j.status,'ok');toast('Project '+j.ref+' created.','ok');
+            return api('/api/config').then(function(c){S.cfg=c;return siteId?load():render()});
+          })
+          .catch(function(x){e.textContent=x.message;e.classList.remove('hide');b.disabled=false;b.textContent='Create project';logline('project create FAILED: '+x.message,'err')});
+      };
     }});
 }
 function credsModal(){

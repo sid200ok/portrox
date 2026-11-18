@@ -26,8 +26,8 @@
     "accent": "#22d3ee"
   },
   "supabase": {
-    "url": "",
-    "publishable_key": ""
+    "url": "https://nwpolajiufkxpvgdeddi.supabase.co",
+    "publishable_key": "sb_publishable_JQC3p44d0XroKpbVxWr2IQ_lGMTaLBT"
   },
   "flags": {
     "available_for_hire": true,

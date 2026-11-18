@@ -31,11 +31,11 @@ echo "default password active: $WEAK"
 [ "$WEAK" = "no" ] || stop "Studio password is still the default. Settings -> Security -> Change credentials, set a new PASSWORD (a username change does not count)."
 
 step "config precondition"
-CFG="$(node -e 'import("./packages/cli/config-store.mjs").then(m=>{const c=m.loadConfig();const s=c.supabase||{},g=c.github||{};process.stdout.write([s.url?"sb":"-",(s.db_password&&s.db_ok)?"db":"-",g.token?"gh":"-"].join(" "))})')"
+CFG="$(node -e 'import("./packages/cli/config-store.mjs").then(m=>{const c=m.loadConfig();const s=c.supabase||{},g=c.github||{};process.stdout.write([s.access_token?"sb":"-",Object.keys(s.projects||{}).length?"proj":"-",g.token?"gh":"-"].join(" "))})')"
 echo "config: $CFG"
 case "$CFG" in
-  "sb db gh") echo "all credentials present" ;;
-  *) stop "Setup incomplete. Settings -> Supabase (URL + publishable key + database password, then Test connection) and Settings -> GitHub (PAT)." ;;
+  "sb proj gh") echo "all credentials present" ;;
+  *) stop "Setup incomplete. Settings -> Supabase account (paste sbp_ token, validate) -> bind/apply a project to the site -> Settings -> GitHub (PAT)." ;;
 esac
 
 step "rpc (positive)"

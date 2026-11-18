@@ -1,14 +1,14 @@
 /**
- * Portrox credential store. Written ONLY by Studio UI endpoints.
- * ~/.portrox/config.json (0600) inside a 0700 directory.
- * Nothing secret is ever returned to the browser or placed in argv.
+ * Portrox store. Written ONLY by Studio UI endpoints. 0600 file in a 0700 dir.
  *
- * Supabase model: the Studio is the database administrator. It needs the
- * Project URL, the PUBLISHABLE key (public, goes into rendered sites) and the
- * DATABASE PASSWORD. Both DSNs are derived from the project ref; the user
- * never types a connection string.
+ * MODEL: ONE Supabase account (access token) -> MANY projects.
+ *        Each site references a project_ref; credentials are never duplicated
+ *        into site.json by hand. GitHub is one account with one PAT.
+ *
+ * Never returned to the browser: access_token, db_password, GitHub PAT.
  */
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -16,23 +16,18 @@ export const HOME = process.env.PORTROX_HOME || join(homedir(), '.portrox');
 const FILE = join(HOME, 'config.json');
 const GH_API = 'https://api.github.com';
 const GH_VER = '2026-03-10';
+export const SMART_GROUPS = ['americas', 'emea', 'apac'];
+export const FREE_ACTIVE_PROJECT_LIMIT = 2;
 
-export const REGIONS = [
-  'ap-south-1', 'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1', 'ap-northeast-2',
-  'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
-  'eu-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1',
-  'ca-central-1', 'sa-east-1'
-];
-
+const blankProject = () => ({
+  ref: '', name: '', organization_slug: '', region: '', status: 'UNKNOWN',
+  url: '', publishable_key: '', key_kind: '', created_at: '',
+  db_password: '', db_password_stored: false,
+  schema_applied: [], schema_via: '', schema_at: 0,
+  health: '', health_at: 0, last_error: ''
+});
 const blank = () => ({
-  supabase: {
-    url: '', publishable_key: '', project_ref: '',
-    db_password: '', db_name: 'postgres',
-    db_host: '', db_port: 5432, db_user: 'postgres',
-    pooler_host: '', pooler_port: 5432, pooler_user: '',
-    region: '', db_mode: '', db_ok: false, db_error: '', db_checked_at: 0, server_version: '',
-    email: '', access_token: '', refresh_token: '', expires_at: 0, user_id: ''
-  },
+  supabase: { access_token: '', token_verified_at: 0, token_error: '', orgs: [], default_project_ref: '', projects: {} },
   github: { token: '', login: '', scopes: '' }
 });
 
@@ -40,17 +35,60 @@ function ensureDir() {
   mkdirSync(HOME, { recursive: true, mode: 0o700 });
   try { chmodSync(HOME, 0o700); } catch {}
 }
+export const refFromUrl = u => {
+  const m = String(u || '').match(/^https:\/\/([a-z0-9-]+)\.supabase\.(?:co|in)$/i);
+  return m ? m[1] : '';
+};
+const urlForRef = ref => ref ? 'https://' + ref + '.supabase.co' : '';
+
+/** Self-heal: derive url/ref, migrate the legacy single-project shape. */
+function normalize(c) {
+  const b = blank();
+  const out = {
+    supabase: { ...b.supabase, ...(c.supabase || {}) },
+    github: { ...b.github, ...(c.github || {}) }
+  };
+  const s = out.supabase;
+  if (!s.projects || typeof s.projects !== 'object') s.projects = {};
+  for (const [ref, p] of Object.entries(s.projects)) {
+    const rec = { ...blankProject(), ...(p || {}) };
+    rec.ref = rec.ref || ref;
+    rec.url = rec.url || urlForRef(rec.ref);
+    s.projects[rec.ref] = rec;
+  }
+  // Legacy v0.4 single-project config -> a project record.
+  if (s.url && !s.projects[refFromUrl(s.url)]) {
+    const ref = refFromUrl(s.url);
+    if (ref) {
+      s.projects[ref] = {
+        ...blankProject(), ref, name: ref, url: s.url,
+        publishable_key: s.publishable_key || '', key_kind: s.publishable_key ? 'publishable' : '',
+        region: s.region || '', status: s.db_ok ? 'ACTIVE_HEALTHY' : 'UNKNOWN',
+        db_password: s.db_password || '', db_password_stored: Boolean(s.db_password),
+        health: s.db_ok ? 'ACTIVE_HEALTHY' : '', health_at: s.db_checked_at || 0
+      };
+      if (!s.default_project_ref) s.default_project_ref = ref;
+    }
+  }
+  if (!s.default_project_ref) {
+    const keys = Object.keys(s.projects);
+    if (keys.length) s.default_project_ref = keys[0];
+  }
+  // Drop legacy scalars so nothing reads a stale global project again.
+  for (const k of ['url', 'publishable_key', 'project_ref', 'db_password', 'db_host', 'db_port', 'db_user',
+    'db_name', 'pooler_host', 'pooler_port', 'pooler_user', 'region', 'db_mode', 'db_ok', 'db_error',
+    'db_checked_at', 'server_version', 'email', 'access_token', 'refresh_token', 'expires_at', 'user_id']) {
+    if (k in s && k !== 'access_token') delete s[k];
+  }
+  return out;
+}
 
 export function loadConfig() {
   ensureDir();
   if (existsSync(FILE) === false) return blank();
-  try {
-    const c = JSON.parse(readFileSync(FILE, 'utf8'));
-    const b = blank();
-    return { supabase: { ...b.supabase, ...(c.supabase || {}) }, github: { ...b.github, ...(c.github || {}) } };
-  } catch { return blank(); }
+  try { return normalize(JSON.parse(readFileSync(FILE, 'utf8'))); }
+  catch { return blank(); }
 }
-
 export function saveConfig(c) {
   ensureDir();
   const tmp = FILE + '.tmp';
@@ -61,112 +99,126 @@ export function saveConfig(c) {
 
 const tail = s => (typeof s === 'string' && s.length > 6) ? s.slice(-4) : '';
 
-/** Browser-safe view. No passwords, no tokens. */
+export function projectRecord(ref) {
+  const c = loadConfig();
+  return c.supabase.projects[ref] || null;
+}
+export function upsertProject(ref, patch) {
+  const c = loadConfig();
+  const cur = c.supabase.projects[ref] || { ...blankProject(), ref };
+  const rec = { ...cur, ...patch, ref };
+  rec.url = rec.url || urlForRef(ref);
+  c.supabase.projects[ref] = rec;
+  if (!c.supabase.default_project_ref) c.supabase.default_project_ref = ref;
+  saveConfig(c);
+  return rec;
+}
+
+/** Browser-safe. No access token, no db password, no PAT. */
 export function maskedConfig() {
   const c = loadConfig();
   const s = c.supabase, g = c.github;
-  const now = Math.floor(Date.now() / 1000);
+  const projects = Object.values(s.projects).map(p => ({
+    ref: p.ref, name: p.name, organization_slug: p.organization_slug, region: p.region,
+    status: p.status, url: p.url, created_at: p.created_at,
+    has_key: Boolean(p.publishable_key), key_kind: p.key_kind, key_tail: tail(p.publishable_key),
+    schema_applied: p.schema_applied, schema_via: p.schema_via, schema_at: p.schema_at,
+    schema_complete: (p.schema_applied || []).length >= 2,
+    health: p.health, health_at: p.health_at,
+    db_password_stored: Boolean(p.db_password_stored), db_password_tail: tail(p.db_password),
+    last_error: p.last_error
+  }));
+  const active = projects.filter(p => /ACTIVE/.test(p.status || '')).length;
   return {
     supabase: {
-      configured: Boolean(s.url && s.publishable_key),
-      url: s.url,
-      project_ref: s.project_ref,
-      key_tail: tail(s.publishable_key),
-      db_configured: Boolean(s.db_password && s.db_host),
-      db_password_tail: tail(s.db_password),
-      db_host: s.db_host, db_port: s.db_port, db_user: s.db_user, db_name: s.db_name,
-      pooler_host: s.pooler_host, pooler_port: s.pooler_port, pooler_user: s.pooler_user,
-      region: s.region, regions: REGIONS,
-      db_mode: s.db_mode, db_ok: Boolean(s.db_ok), db_error: s.db_error,
-      db_checked_at: s.db_checked_at, server_version: s.server_version,
-      dsn_direct: s.db_host ? 'postgresql://' + s.db_user + ':********@' + s.db_host + ':' + s.db_port + '/' + s.db_name : '',
-      dsn_pooler: s.pooler_host ? 'postgresql://' + s.pooler_user + ':********@' + s.pooler_host + ':' + s.pooler_port + '/' + s.db_name : '',
-      signed_in: Boolean(s.access_token && s.user_id),
-      email: s.email, user_id: s.user_id,
-      expires_in: s.expires_at ? Math.max(0, s.expires_at - now) : 0
+      account: {
+        configured: Boolean(s.access_token),
+        token_tail: tail(s.access_token),
+        verified_at: s.token_verified_at,
+        error: s.token_error,
+        orgs: s.orgs,
+        default_project_ref: s.default_project_ref
+      },
+      projects,
+      project_count: projects.length,
+      active_count: active,
+      free_limit: FREE_ACTIVE_PROJECT_LIMIT,
+      smart_groups: SMART_GROUPS
     },
     github: { configured: Boolean(g.token), login: g.login, token_tail: tail(g.token), scopes: g.scopes }
   };
 }
 
+export function accessToken() {
+  const c = loadConfig();
+  if (!c.supabase.access_token) throw new Error('Supabase access token not set. Settings -> Supabase account.');
+  return c.supabase.access_token;
+}
+export function setAccessToken(token, orgs) {
+  const c = loadConfig();
+  const t = String(token || '').trim();
+  if (!t) {
+    if (!c.supabase.access_token) throw new Error('Access token is required.');
+  } else {
+    if (!/^sbp_/.test(t)) throw new Error('Supabase personal access tokens start with sbp_.');
+    c.supabase.access_token = t;
+  }
+  c.supabase.orgs = Array.isArray(orgs) ? orgs : c.supabase.orgs;
+  c.supabase.token_verified_at = Date.now();
+  c.supabase.token_error = '';
+  saveConfig(c);
+  return maskedConfig();
+}
+export function recordTokenError(msg) {
+  const c = loadConfig();
+  c.supabase.token_error = String(msg || '').slice(0, 300);
+  saveConfig(c);
+  return maskedConfig();
+}
+export function setDefaultProject(ref) {
+  const c = loadConfig();
+  if (!c.supabase.projects[ref]) throw new Error('Unknown project ref: ' + ref);
+  c.supabase.default_project_ref = ref;
+  saveConfig(c);
+  return maskedConfig();
+}
+export function clearAccessToken() {
+  const c = loadConfig();
+  c.supabase.access_token = ''; c.supabase.orgs = []; c.supabase.token_verified_at = 0;
+  saveConfig(c);
+  return maskedConfig();
+}
+
+/** Strong, unique, URL-safe. Shown ONCE; cannot be rotated via the API. */
+export function generateDbPassword() {
+  return randomBytes(24).toString('base64url') + 'A7!';
+}
+
 export function assertPublicKey(key) {
-  if (/^sb_(secret|service)_/.test(key)) throw new Error('REFUSING: secret/service key. Use the publishable (anon) key.');
+  if (/^sb_(secret|service)_/.test(key)) throw new Error('REFUSING: secret/service key. Use the publishable key.');
   if (/^sb_(publishable|anon)_/.test(key)) return 'publishable';
   if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)) return 'legacy-anon';
-  throw new Error('Key must be sb_publishable_… / sb_anon_… or a legacy anon JWT.');
+  throw new Error('Key must be sb_publishable_… or a legacy anon JWT.');
 }
 
-export function refFromUrl(u) {
-  const m = String(u || '').match(/^https:\/\/([a-z0-9-]+)\.supabase\.(?:co|in)$/i);
-  return m ? m[1] : '';
-}
-
-/**
- * Single Supabase endpoint. Accepts url + publishable_key + db_password + region.
- * Blank secret fields keep the stored value so any field can be edited alone.
- * Both DSN endpoints are DERIVED from the project ref.
- */
-export function setSupabase({ url, publishable_key, db_password, region }) {
+/** Resolved public credentials for a site's project. Never includes secrets. */
+export function publicSupabaseFor(ref) {
   const c = loadConfig();
-  const s = c.supabase;
-  const u = String(url || s.url || '').trim().replace(/\/$/, '');
-  if (/^https:\/\/[A-Za-z0-9.-]+\.supabase\.(co|in)$/.test(u) === false) {
-    throw new Error('Invalid Supabase URL. Expected https://<project-ref>.supabase.co');
-  }
-  let k = String(publishable_key || '').trim();
-  if (!k) {
-    if (!s.publishable_key) throw new Error('Publishable key is required on first setup.');
-    k = s.publishable_key;
-  }
-  assertPublicKey(k);
-
-  let p = String(db_password || '');
-  if (!p) p = s.db_password;
-
-  const ref = refFromUrl(u);
-  const reg = String(region || s.region || '').trim();
-  const projectChanged = s.url !== u;
-
-  s.url = u;
-  s.publishable_key = k;
-  s.project_ref = ref;
-  s.db_password = p;
-  s.db_name = s.db_name || 'postgres';
-  s.db_host = 'db.' + ref + '.supabase.co';
-  s.db_port = 5432;
-  s.db_user = 'postgres';
-  s.region = reg;
-  s.pooler_host = reg ? 'aws-0-' + reg + '.pooler.supabase.com' : '';
-  s.pooler_port = 5432;
-  s.pooler_user = reg ? 'postgres.' + ref : '';
-  if (projectChanged || s.db_password !== p) { s.db_ok = false; s.db_error = ''; s.db_mode = ''; s.server_version = ''; }
-  if (projectChanged) { s.access_token = ''; s.refresh_token = ''; s.expires_at = 0; s.user_id = ''; s.email = ''; }
-  saveConfig(c);
-  return maskedConfig();
+  const r = ref || c.supabase.default_project_ref;
+  const p = r ? c.supabase.projects[r] : null;
+  if (!p || !p.url || !p.publishable_key) return { url: '', publishable_key: '' };
+  assertPublicKey(p.publishable_key);
+  return { url: p.url, publishable_key: p.publishable_key };
 }
+export function publicSupabase() { return publicSupabaseFor(''); }
 
-export function recordDbResult({ ok: good, mode, error, version }) {
+/** psql fallback only. Password lives in ENV, never argv. */
+export function pgParams(ref) {
   const c = loadConfig();
-  c.supabase.db_ok = Boolean(good);
-  c.supabase.db_mode = good ? (mode || '') : c.supabase.db_mode;
-  c.supabase.db_error = good ? '' : String(error || '').slice(0, 400);
-  c.supabase.server_version = good ? String(version || '') : c.supabase.server_version;
-  c.supabase.db_checked_at = Date.now();
-  saveConfig(c);
-  return maskedConfig();
-}
-
-/** Connection parameters. Password lives in the ENV, never in argv. */
-export function pgParams(mode) {
-  const c = loadConfig();
-  const s = c.supabase;
-  if (!s.db_password) throw new Error('Database password not set. Enter it in Settings → Supabase.');
-  const direct = mode !== 'pooler';
-  const host = direct ? s.db_host : s.pooler_host;
-  const user = direct ? s.db_user : s.pooler_user;
-  const port = direct ? s.db_port : s.pooler_port;
-  if (!host || !user) throw new Error('Pooler endpoint unavailable. Select your project region first.');
-  return { host, port: Number(port), user, database: s.db_name || 'postgres', password: s.db_password, mode: direct ? 'direct' : 'pooler' };
+  const p = c.supabase.projects[ref || c.supabase.default_project_ref];
+  if (!p) throw new Error('No project bound to this site.');
+  if (!p.db_password_stored || !p.db_password) throw new Error('DB password not stored for this project. Use the Management API path, or re-enter it.');
+  return { host: 'db.' + p.ref + '.supabase.co', port: 5432, user: 'postgres', database: 'postgres', password: p.db_password, mode: 'direct' };
 }
 
 export async function setGithub({ token }) {
@@ -181,23 +233,19 @@ export async function setGithub({ token }) {
   });
   if (r.ok === false) throw new Error('GitHub token rejected (HTTP ' + r.status + '). Needs repo + workflow scope.');
   const j = await r.json();
-  c.github.token = t;
-  c.github.login = j.login || '';
+  c.github.token = t; c.github.login = j.login || '';
   c.github.scopes = r.headers.get('x-oauth-scopes') || '';
   saveConfig(c);
   return maskedConfig();
 }
-
 export async function gh(path, opts = {}) {
   const c = loadConfig();
   if (!c.github.token) throw new Error('Configure GitHub token in Settings first.');
   const r = await fetch(GH_API + path, {
     method: opts.method || 'GET',
     headers: {
-      Authorization: 'Bearer ' + c.github.token,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': GH_VER,
-      'User-Agent': 'portrox',
+      Authorization: 'Bearer ' + c.github.token, Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': GH_VER, 'User-Agent': 'portrox',
       ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' })
     },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body)
@@ -206,82 +254,14 @@ export async function gh(path, opts = {}) {
   let json = null; try { json = text ? JSON.parse(text) : null; } catch {}
   return { status: r.status, ok: r.ok, json, text };
 }
-
-/** Git credential helper reads the PAT from ENV only. Empty value resets the list. */
 export function gitEnv() {
   const c = loadConfig();
   if (!c.github.token) throw new Error('Configure GitHub token in Settings first.');
   return {
-    ...process.env,
-    GH_TOKEN: c.github.token,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ASKPASS: '/bin/true',
+    ...process.env, GH_TOKEN: c.github.token, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '/bin/true',
     GIT_CONFIG_COUNT: '2',
-    GIT_CONFIG_KEY_0: 'credential.helper',
-    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '',
     GIT_CONFIG_KEY_1: 'credential.helper',
     GIT_CONFIG_VALUE_1: '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
   };
-}
-
-export function publicSupabase() {
-  const c = loadConfig();
-  if (!c.supabase.url || !c.supabase.publishable_key) return { url: '', publishable_key: '' };
-  assertPublicKey(c.supabase.publishable_key);
-  return { url: c.supabase.url, publishable_key: c.supabase.publishable_key };
-}
-
-/* ---- retained for compatibility; the Studio UI no longer uses Auth sign-in ---- */
-async function tokenRequest(grant, body) {
-  const c = loadConfig();
-  if (!c.supabase.url || !c.supabase.publishable_key) throw new Error('Configure Supabase first.');
-  const r = await fetch(c.supabase.url + '/auth/v1/token?grant_type=' + grant, {
-    method: 'POST', headers: { apikey: c.supabase.publishable_key, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const j = await r.json().catch(() => ({}));
-  if (r.ok === false) throw new Error(j.error_description || j.msg || j.error || ('auth failed HTTP ' + r.status));
-  return j;
-}
-export async function signIn({ email, password }) {
-  const j = await tokenRequest('password', { email: String(email || '').trim(), password: String(password || '') });
-  const c = loadConfig();
-  c.supabase.email = String(email || '').trim();
-  c.supabase.access_token = j.access_token || '';
-  c.supabase.refresh_token = j.refresh_token || '';
-  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
-  c.supabase.user_id = (j.user && j.user.id) || '';
-  saveConfig(c);
-  return maskedConfig();
-}
-export function signOut() {
-  const c = loadConfig();
-  c.supabase.access_token = ''; c.supabase.refresh_token = ''; c.supabase.expires_at = 0; c.supabase.user_id = ''; c.supabase.email = '';
-  saveConfig(c);
-  return maskedConfig();
-}
-export async function ensureToken() {
-  const c = loadConfig();
-  if (!c.supabase.refresh_token) throw new Error('Not signed in to Supabase Auth.');
-  const now = Math.floor(Date.now() / 1000);
-  if (c.supabase.access_token && c.supabase.expires_at - 60 > now) return c.supabase.access_token;
-  const j = await tokenRequest('refresh_token', { refresh_token: c.supabase.refresh_token });
-  c.supabase.access_token = j.access_token || '';
-  c.supabase.refresh_token = j.refresh_token || c.supabase.refresh_token;
-  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
-  if (j.user && j.user.id) c.supabase.user_id = j.user.id;
-  saveConfig(c);
-  return c.supabase.access_token;
-}
-export async function sb(path, opts = {}) {
-  const c = loadConfig();
-  const tok = await ensureToken();
-  const r = await fetch(c.supabase.url + path, {
-    method: opts.method || 'GET',
-    headers: { apikey: c.supabase.publishable_key, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', ...(opts.prefer ? { Prefer: opts.prefer } : {}) },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body)
-  });
-  const text = await r.text();
-  let json = null; try { json = text ? JSON.parse(text) : null; } catch {}
-  return { status: r.status, ok: r.ok, json, text };
 }

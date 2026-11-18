@@ -56,12 +56,15 @@ try {
   for (const m of ['navcollapsed', 'navright', 'navopen', 'toggleNav', 'portrox.nav', 'portrox.side', 'String.fromCharCode(10)']) {
     app.includes(m) ? ok('marker ' + m) : fail('missing marker ' + m);
   }
-  for (const t of ['supabase', 'github', 'security', 'appearance']) {
+  for (const t of ['account', 'supabase', 'github', 'security', 'appearance']) {
     app.includes("'" + t + "'") ? ok('settings tab ' + t) : fail('settings tab ' + t + ' missing');
   }
   app.includes('AUTH.weakPassword') ? ok('warning gated on weakPassword') : fail('warning not gated on weakPassword');
   app.includes('recoveryAnswers') ? ok('atomic credentials+recovery payload') : fail('recovery not atomic');
-  app.includes('sb-dbpw') ? ok('database password field present') : fail('database password field missing');
+  app.includes('sb-tok') ? ok('Supabase account token field present') : fail('account token field missing');
+  app.includes('db-ref') ? ok('per-site project selector present') : fail('per-site project selector missing');
+  app.includes('newProjectModal') ? ok('create-project modal present') : fail('create-project modal missing');
+  app.includes('free_limit') ? ok('free project limit surfaced') : fail('free project limit not surfaced');
   app.includes('db_configured') ? ok('database state surfaced') : fail('database state not surfaced');
   app.includes('f-sbin') ? fail('obsolete Supabase Auth sign-in form still present') : ok('Supabase Auth sign-in removed');
   app.includes('cdn.tailwindcss.com') || app.includes('unpkg.com') ? fail('runtime CDN present') : ok('zero CDN');
