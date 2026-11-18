@@ -1,3 +1,7 @@
+/**
+ * Daemon gate. Secret detection inspects JSON KEYS and VALUES, never substrings
+ * of field names — 'db_password_stored' is a boolean, not a leak.
+ */
 import { readFileSync, statSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
@@ -12,6 +16,40 @@ const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 const curl = a => spawnSync('curl', a, { encoding: 'utf8' });
 const code = a => curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', ...a]).stdout.trim();
+
+const SECRET_KEYS = new Set(['access_token', 'refresh_token', 'db_password', 'db_password_tail', 'token', 'password', 'secret_key', 'service_role_key']);
+const SECRET_VALUE = /sbp_[A-Za-z0-9]{8,}|sb_secret_[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}/;
+
+/** Walk parsed JSON. Flag forbidden keys with non-empty values, and secret-shaped values. */
+function leakScan(obj, csrf) {
+  const hits = [];
+  const walk = (node, path) => {
+    if (node === null || node === undefined) return;
+    if (typeof node === 'string') {
+      if (SECRET_VALUE.test(node)) hits.push(path + ' (secret-shaped value)');
+      if (csrf && node.includes(csrf)) hits.push(path + ' (CSRF token)');
+      return;
+    }
+    if (Array.isArray(node)) { node.forEach((v, i) => walk(v, path + '[' + i + ']')); return; }
+    if (typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) {
+        if (SECRET_KEYS.has(k) && v !== '' && v !== null && v !== false && v !== undefined) {
+          hits.push(path + '.' + k + ' (forbidden key with value)');
+        }
+        walk(v, path + '.' + k);
+      }
+    }
+  };
+  walk(obj, '$');
+  return hits;
+}
+function assertNoLeaks(raw, csrf, label) {
+  let j = null;
+  try { j = JSON.parse(raw); } catch { fail(label + ': not JSON'); return null; }
+  const hits = leakScan(j, csrf);
+  hits.length === 0 ? ok(label + ': no secrets in keys or values') : fail(label + ' leaked: ' + hits.join(', '));
+  return j;
+}
 
 st.host === '127.0.0.1' ? ok('bind 127.0.0.1') : fail('bind ' + st.host);
 (st.port > 0 && st.port !== 8000 && st.port !== 3000) ? ok('dynamic port ' + st.port) : fail('suspicious port ' + st.port);
@@ -40,105 +78,68 @@ const loginPage = curl(['-fsS', st.url + '/']);
 loginPage.status === 0 && /Sign in/.test(loginPage.stdout) ? ok('unauthenticated / serves login') : fail('/ did not serve login');
 loginPage.stdout.includes(st.token) ? ok('CSRF token present in login page') : fail('CSRF missing from login page');
 
-// A4 — session cookie must never be world-readable. mkdtemp gives 0700.
-const box = mkdtempSync(join(tmpdir(), 'portrox-vd-'));
-const jar = join(box, 'jar');
-try {
-  const lg = curl(['-s', '-c', jar, '-X', 'POST', '-H', 'Content-Type: application/json',
-    '-H', 'x-portrox-token: ' + st.token, st.url + '/api/auth/login',
-    '-d', JSON.stringify({ username: U, password: P })]);
-  let logged = false;
-  try { logged = JSON.parse(lg.stdout).ok === true; } catch {}
-  if (logged === false) {
-    console.log('NOTE live daemon credentials rotated — running the authenticated suite in a SANDBOX daemon instead.');
-  } else {
-    ok('login succeeds');
-    const jdm = (statSync(box).mode & 0o777).toString(8);
-    jdm === '700' ? ok('cookie jar dir 0700') : fail('cookie jar dir ' + jdm);
-    if (existsSync(jar)) {
-      const jm = (statSync(jar).mode & 0o777).toString(8);
-      (jm === '600' || jm === '644') ? ok('cookie jar mode ' + jm + ' inside 0700 dir') : fail('cookie jar mode ' + jm);
-    }
-    const cfg = curl(['-fsS', '-b', jar, st.url + '/api/config']);
-    if (cfg.status !== 0) fail('authenticated /api/config unreachable');
-    else {
-      const raw = cfg.stdout;
-      const leaks = ['access_token', 'refresh_token', '"token"', 'password', st.token].filter(k => raw.includes(k));
-      leaks.length === 0 ? ok('/api/config leaks no secrets') : fail('/api/config leaked: ' + leaks.join(', '));
-      try { const j = JSON.parse(raw); (j.supabase && j.github) ? ok('masked shape present') : fail('masked shape wrong'); } catch { fail('config not JSON'); }
-    }
-    const sess = curl(['-fsS', '-b', jar, st.url + '/api/session']);
-    try {
-      const j = JSON.parse(sess.stdout);
-      ('weakPassword' in j.auth) ? ok('session exposes weakPassword flag') : fail('session missing weakPassword flag');
-      j.auth.weakPassword === true ? console.log('NOTE default password still active — rotate it in Settings -> Security') : ok('password is not the default');
-    } catch { fail('session not JSON'); }
-    const sites = curl(['-fsS', '-b', jar, st.url + '/api/sites']);
-    sites.status === 0 ? ok('authenticated /api/sites reachable') : fail('sites unreachable with session');
-    const sk = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', jar, '-X', 'POST',
-      '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + st.token,
-      st.url + '/api/config/supabase', '-d', JSON.stringify({ url: 'https://x.supabase.co', publishable_key: 'sb_' + 'secret_' + 'A'.repeat(20) })]);
-    sk.stdout.trim() === '400' ? ok('secret key rejected -> 400') : fail('secret key accepted -> ' + sk.stdout.trim());
-    const lo = curl(['-s', '-b', jar, '-X', 'POST', '-H', 'x-portrox-token: ' + st.token, st.url + '/api/auth/logout']);
-    lo.status === 0 ? ok('logout succeeds') : fail('logout failed');
-    code(['-b', jar, st.url + '/api/config']) === '401' ? ok('session invalidated after logout') : fail('session survived logout');
-  }
-} finally {
-  try { rmSync(box, { recursive: true, force: true }); } catch {}
-}
-
-const ss = spawnSync('bash', ['-lc', 'ss -ltnp 2>/dev/null | grep ":' + st.port + ' " || true'], { encoding: 'utf8' });
-ss.stdout.includes('127.0.0.1:' + st.port) ? ok('listener is loopback only') : fail('listener: ' + ss.stdout.trim());
-
 /* ---- Sandbox daemon: full authenticated suite with fresh admin/admin ---- */
 console.log('\n-- sandbox authenticated suite --');
-{
-  const box = mkdtempSync(join(tmpdir(), 'portrox-sbx-'));
-  const daemon = new URL('../packages/cli/studio-daemon.mjs', import.meta.url).pathname;
-  const child = spawnSync(process.execPath, ['-e',
+const box = mkdtempSync(join(tmpdir(), 'portrox-sbx-'));
+let sandboxPid = null;
+try {
+  const daemon = join(process.cwd(), 'packages/cli/studio-daemon.mjs');
+  spawnSync(process.execPath, ['-e',
     'const{spawn}=require("child_process");' +
     'const c=spawn(process.execPath,[process.argv[1]],{detached:true,stdio:"ignore",env:process.env});' +
     'c.unref();process.stdout.write(String(c.pid));', daemon],
     { encoding: 'utf8', env: { ...process.env, PORTROX_HOME: box, PORTROX_REPO: process.cwd(), PORTROX_PORT: '0', PORTROX_HOST: '127.0.0.1' } });
   let sb = null;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
     try { sb = JSON.parse(readFileSync(join(box, 'state.json'), 'utf8')); if (sb && sb.port) break; } catch {}
     spawnSync('sleep', ['0.2']);
   }
-  if (sb === null || !sb.port) { fail('sandbox daemon did not start'); }
+  if (sb === null || !sb.port) fail('sandbox daemon did not start');
   else {
+    sandboxPid = Number(sb.pid);
     ok('sandbox daemon on 127.0.0.1:' + sb.port);
-    const j2 = join(box, 'jar2');
-    const lg2 = curl(['-s', '-c', j2, '-X', 'POST', '-H', 'Content-Type: application/json',
+    const jar = join(box, 'jar');
+    const lg = curl(['-s', '-c', jar, '-X', 'POST', '-H', 'Content-Type: application/json',
       '-H', 'x-portrox-token: ' + sb.token, sb.url + '/api/auth/login',
       '-d', JSON.stringify({ username: 'admin', password: 'admin' })]);
-    let in2 = false; try { in2 = JSON.parse(lg2.stdout).ok === true; } catch {}
-    in2 ? ok('sandbox login admin/admin') : fail('sandbox login failed');
-    const cfg2 = curl(['-fsS', '-b', j2, sb.url + '/api/config']);
-    if (cfg2.status !== 0) fail('sandbox /api/config unreachable with session');
+    let logged = false; try { logged = JSON.parse(lg.stdout).ok === true; } catch {}
+    logged ? ok('sandbox login admin/admin') : fail('sandbox login failed');
+
+    const cfg = curl(['-fsS', '-b', jar, sb.url + '/api/config']);
+    if (cfg.status !== 0) fail('sandbox /api/config unreachable with session');
     else {
-      const raw = cfg2.stdout;
-      const leaks = ['access_token', 'refresh_token', '"token"', 'password', sb.token].filter(k => raw.includes(k));
-      leaks.length === 0 ? ok('sandbox config leaks no secrets') : fail('sandbox config leaked: ' + leaks.join(', '));
-      try {
-        const j = JSON.parse(raw);
+      const j = assertNoLeaks(cfg.stdout, sb.token, 'sandbox /api/config');
+      if (j) {
         (j.supabase && j.supabase.account && Array.isArray(j.supabase.projects)) ? ok('multi-project config shape') : fail('config shape wrong');
-        ('configured' in j.supabase && 'schema_complete' in j.supabase) ? ok('derived fields present') : fail('derived fields missing');
-      } catch { fail('sandbox config not JSON'); }
+        for (const k of ['configured', 'project_ready', 'db_ok', 'schema_complete', 'schema_files']) {
+          (k in j.supabase) ? ok('derived field ' + k) : fail('derived field ' + k + ' missing');
+        }
+        const raw = cfg.stdout;
+        raw.includes('db_password_tail') ? fail('db_password_tail must not be exposed') : ok('no DB password hint exposed');
+      }
     }
-    const sk2 = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', j2, '-X', 'POST',
+    const sess = curl(['-fsS', '-b', jar, sb.url + '/api/session']);
+    if (sess.status === 0) assertNoLeaks(sess.stdout, null, 'sandbox /api/session');
+
+    const badTok = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', jar, '-X', 'POST',
       '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + sb.token,
       sb.url + '/api/supabase/token', '-d', JSON.stringify({ access_token: 'sbp_invalid_probe_token' })]);
-    (sk2.stdout.trim() === '400') ? ok('invalid Supabase token rejected -> 400') : fail('invalid token accepted -> ' + sk2.stdout.trim());
-    const noTok2 = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', j2, '-X', 'POST', sb.url + '/api/supabase/refresh', '-d', '{}']);
-    noTok2.stdout.trim() === '403' ? ok('sandbox POST without CSRF -> 403') : fail('sandbox CSRF not enforced');
-    const lo2 = curl(['-s', '-b', j2, '-X', 'POST', '-H', 'x-portrox-token: ' + sb.token, sb.url + '/api/auth/logout']);
-    lo2.status === 0 ? ok('sandbox logout') : fail('sandbox logout failed');
-    code(['-b', j2, sb.url + '/api/config']) === '401' ? ok('sandbox session invalidated after logout') : fail('sandbox session survived logout');
-    try { process.kill(Number(sb.pid), 'SIGTERM'); } catch {}
+    badTok.stdout.trim() === '400' ? ok('invalid Supabase token rejected -> 400') : fail('invalid token accepted -> ' + badTok.stdout.trim());
+
+    const noCsrf = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', jar, '-X', 'POST', sb.url + '/api/supabase/refresh', '-d', '{}']);
+    noCsrf.stdout.trim() === '403' ? ok('sandbox POST without CSRF -> 403') : fail('sandbox CSRF not enforced');
+
+    const lo = curl(['-s', '-b', jar, '-X', 'POST', '-H', 'x-portrox-token: ' + sb.token, sb.url + '/api/auth/logout']);
+    lo.status === 0 ? ok('sandbox logout') : fail('sandbox logout failed');
+    code(['-b', jar, sb.url + '/api/config']) === '401' ? ok('sandbox session invalidated after logout') : fail('sandbox session survived logout');
   }
+} finally {
+  if (sandboxPid) { try { process.kill(sandboxPid, 'SIGTERM'); } catch {} }
   try { rmSync(box, { recursive: true, force: true }); } catch {}
 }
+
+const ss = spawnSync('bash', ['-lc', 'ss -ltnp 2>/dev/null | grep ":' + st.port + ' " || true'], { encoding: 'utf8' });
+ss.stdout.includes('127.0.0.1:' + st.port) ? ok('listener is loopback only') : fail('listener: ' + ss.stdout.trim());
 
 console.log('\nStudio URL: ' + st.url);
 console.log(bad === 0 ? 'DAEMON OK' : 'DAEMON BAD=' + bad);

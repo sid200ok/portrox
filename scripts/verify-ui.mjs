@@ -1,10 +1,6 @@
 /**
- * Verify the EMITTED browser script.
- * node --check IS the parser and is authoritative. A regex heuristic that
- * looks for "a newline between two single quotes" matches ordinary JS such as
- *   var a = 'x';
- *   var b = 'y';
- * and produced false failures. It has been removed permanently.
+ * Verify the EMITTED browser script (node --check is authoritative) and assert
+ * the REAL surface. No substring heuristics; no assertions on dead code.
  */
 import { renderApp, renderLogin } from '../packages/cli/studio-ui.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -25,7 +21,7 @@ const auth = {
 };
 const csrf = 'a'.repeat(48);
 const pages = {
-  app: renderApp({ csrf, auth, port: 45000, pid: 1234, version: '0.4.0' }),
+  app: renderApp({ csrf, auth, port: 45000, pid: 1234, version: '0.5.1' }),
   login: renderLogin({ csrf, state: auth, port: 45000 })
 };
 
@@ -37,40 +33,43 @@ try {
       const f = join(box, name + '-' + i + '.js');
       writeFileSync(f, src);
       const r = spawnSync(process.execPath, ['--check', f], { encoding: 'utf8' });
-      if (r.status === 0) ok(name + ' script[' + i + '] parses (' + src.length + 'B)');
-      else fail(name + ' script[' + i + '] SYNTAX ERROR: ' + String(r.stderr).split('\n').slice(0, 6).join(' | '));
+      r.status === 0 ? ok(name + ' script[' + i + '] parses (' + src.length + 'B)')
+        : fail(name + ' script[' + i + '] SYNTAX ERROR: ' + String(r.stderr).split('\n').slice(0, 6).join(' | '));
     });
-    // Real structural hazards, not quote heuristics.
     html.includes('</script></body>') ? ok(name + ': script closed before body end') : fail(name + ': script/body closure wrong');
-    /<script[^>]*src=/.test(html) ? fail(name + ': external script tag (CDN) present') : ok(name + ': no external script tags');
+    /<script[^>]*src=/.test(html) ? fail(name + ': external script tag (CDN)') : ok(name + ': no external script tags');
   }
 
   const app = pages.app;
-  for (const id of ['view', 'ttl', 'crumb', 'navtoggle', 'scrim', 'sb', 'secwarn', 'sync', 'refresh', 'signout', 'fixcreds', 'toasts', 'modalroot']) {
+  for (const id of ['view', 'ttl', 'crumb', 'navtoggle', 'scrim', 'sb', 'secwarn', 'sync', 'refresh', 'signout', 'fixcreds', 'toasts', 'modalroot'])
     app.includes('id="' + id + '"') ? ok('app has #' + id) : fail('app missing #' + id);
-  }
   for (const r of ['dashboard', 'studio', 'settings', 'about']) {
     app.includes('data-nav="' + r + '"') ? ok('nav item ' + r) : fail('nav item ' + r + ' missing');
     app.includes('function v' + r.charAt(0).toUpperCase() + r.slice(1)) ? ok('view builder v' + r) : fail('view builder v' + r + ' missing');
   }
-  for (const m of ['navcollapsed', 'navright', 'navopen', 'toggleNav', 'portrox.nav', 'portrox.side', 'String.fromCharCode(10)']) {
+  for (const m of ['navcollapsed', 'navright', 'navopen', 'toggleNav', 'portrox.nav', 'portrox.side', 'String.fromCharCode(10)'])
     app.includes(m) ? ok('marker ' + m) : fail('missing marker ' + m);
-  }
-  for (const t of ['account', 'supabase', 'github', 'security', 'appearance']) {
+  for (const t of ['account', 'supabase', 'github', 'security', 'appearance'])
     app.includes("'" + t + "'") ? ok('settings tab ' + t) : fail('settings tab ' + t + ' missing');
-  }
-  app.includes('AUTH.weakPassword') ? ok('warning gated on weakPassword') : fail('warning not gated on weakPassword');
-  app.includes('recoveryAnswers') ? ok('atomic credentials+recovery payload') : fail('recovery not atomic');
-  app.includes('sb-tok') ? ok('Supabase account token field present') : fail('account token field missing');
+
+  // Real surface, not dead code.
+  app.includes('PORTROX_PROJECT_TAB') ? ok('project-binding tab present') : fail('project-binding tab missing (dead tab still shipped)');
+  app.includes('/api/config/test-db') ? fail('dead endpoint /api/config/test-db still referenced') : ok('no dead test-db endpoint');
+  app.includes('/api/config/supabase') ? fail('dead endpoint /api/config/supabase still referenced') : ok('no dead config/supabase endpoint');
+  app.includes('db_configured') ? fail('removed field db_configured still read') : ok('no removed db_configured field');
+  app.includes('sb.account&&sb.account.configured') ? ok('checklist uses account state') : fail('checklist not re-pointed at account');
+  app.includes('sb.schema_complete') ? ok('checklist uses schema_complete') : fail('checklist missing schema step');
+  app.includes("a==='pboot'") ? ok('bootstrap action present') : fail('bootstrap action missing');
+  app.includes('sb-tok') ? ok('account token field present') : fail('account token field missing');
   app.includes('db-ref') ? ok('per-site project selector present') : fail('per-site project selector missing');
   app.includes('newProjectModal') ? ok('create-project modal present') : fail('create-project modal missing');
-  app.includes('free_limit') ? ok('free project limit surfaced') : fail('free project limit not surfaced');
-  app.includes('db_configured') ? ok('database state surfaced') : fail('database state not surfaced');
-  app.includes('f-sbin') ? fail('obsolete Supabase Auth sign-in form still present') : ok('Supabase Auth sign-in removed');
-  app.includes('cdn.tailwindcss.com') || app.includes('unpkg.com') ? fail('runtime CDN present') : ok('zero CDN');
+  app.includes('free_limit') ? ok('free project cap surfaced') : fail('free project cap not surfaced');
+  app.includes('AUTH.weakPassword') ? ok('warning gated on weakPassword') : fail('warning not gated on weakPassword');
+  app.includes('recoveryAnswers') ? ok('atomic credentials+recovery payload') : fail('recovery not atomic');
+  app.includes('f-sbin') ? fail('obsolete Supabase Auth sign-in form present') : ok('Supabase Auth sign-in removed');
+  (app.includes('cdn.tailwindcss.com') || app.includes('unpkg.com')) ? fail('runtime CDN present') : ok('zero CDN');
 } finally {
   try { rmSync(box, { recursive: true, force: true }); } catch {}
 }
-
 console.log('\n' + (bad === 0 ? 'UI OK' : 'UI BAD=' + bad));
 process.exit(bad === 0 ? 0 : 1);

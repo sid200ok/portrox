@@ -2,10 +2,16 @@
  * Portrox store. Written ONLY by Studio UI endpoints. 0600 file in a 0700 dir.
  *
  * MODEL: ONE Supabase account (access token) -> MANY projects.
- *        Each site references a project_ref; credentials are never duplicated
- *        into site.json by hand. GitHub is one account with one PAT.
+ *        Each site references a project_ref; credentials are never hand-copied
+ *        into site.json. GitHub is one account with one PAT.
  *
- * Never returned to the browser: access_token, db_password, GitHub PAT.
+ * PREDICATES ARE DISTINCT — do not conflate them:
+ *   configured     = account access token present
+ *   project_ready  = the bound project resolves to URL + publishable key
+ *   db_ok          = project reports ACTIVE_HEALTHY (status OR health probe)
+ *   schema_complete= Portrox migrations recorded for that project
+ *
+ * Never returned to the browser: access_token, db_password (any part), GitHub PAT.
  */
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -40,6 +46,7 @@ export const refFromUrl = u => {
   return m ? m[1] : '';
 };
 const urlForRef = ref => ref ? 'https://' + ref + '.supabase.co' : '';
+const healthy = p => /ACTIVE_HEALTHY/.test(String((p && (p.status || p.health)) || ''));
 
 /** Self-heal: derive url/ref, migrate the legacy single-project shape. */
 function normalize(c) {
@@ -54,9 +61,9 @@ function normalize(c) {
     const rec = { ...blankProject(), ...(p || {}) };
     rec.ref = rec.ref || ref;
     rec.url = rec.url || urlForRef(rec.ref);
+    if (!Array.isArray(rec.schema_applied)) rec.schema_applied = [];
     s.projects[rec.ref] = rec;
   }
-  // Legacy v0.4 single-project config -> a project record.
   if (s.url && !s.projects[refFromUrl(s.url)]) {
     const ref = refFromUrl(s.url);
     if (ref) {
@@ -74,7 +81,6 @@ function normalize(c) {
     const keys = Object.keys(s.projects);
     if (keys.length) s.default_project_ref = keys[0];
   }
-  // Drop legacy scalars so nothing reads a stale global project again.
   for (const k of ['url', 'publishable_key', 'project_ref', 'db_password', 'db_host', 'db_port', 'db_user',
     'db_name', 'pooler_host', 'pooler_port', 'pooler_user', 'region', 'db_mode', 'db_ok', 'db_error',
     'db_checked_at', 'server_version', 'email', 'refresh_token', 'expires_at', 'user_id']) {
@@ -114,7 +120,20 @@ export function upsertProject(ref, patch) {
   return rec;
 }
 
-/** Browser-safe. No access token, no db password, no PAT. */
+/** Record versions observed in supabase_migrations (e.g. applied by the CLI). */
+export function reconcileSchema(ref, versions, via) {
+  const c = loadConfig();
+  const cur = c.supabase.projects[ref];
+  if (!cur) throw new Error('Unknown project ref: ' + ref);
+  const merged = Array.from(new Set([...(cur.schema_applied || []), ...(versions || [])])).sort();
+  cur.schema_applied = merged;
+  if (via) cur.schema_via = via;
+  cur.schema_at = Date.now();
+  saveConfig(c);
+  return merged;
+}
+
+/** Browser-safe. No access token, no DB password (not even a hint), no PAT. */
 export function maskedConfig() {
   const c = loadConfig();
   const s = c.supabase, g = c.github;
@@ -124,23 +143,22 @@ export function maskedConfig() {
     has_key: Boolean(p.publishable_key), key_kind: p.key_kind, key_tail: tail(p.publishable_key),
     schema_applied: p.schema_applied, schema_via: p.schema_via, schema_at: p.schema_at,
     schema_complete: (p.schema_applied || []).length >= 2,
-    health: p.health, health_at: p.health_at,
-    db_password_stored: Boolean(p.db_password_stored), db_password_tail: tail(p.db_password),
+    health: p.health, health_at: p.health_at, healthy: healthy(p),
+    db_password_stored: Boolean(p.db_password_stored),
     last_error: p.last_error
   }));
   const active = projects.filter(p => /ACTIVE/.test(p.status || '')).length;
-  // Derived convenience fields from the DEFAULT project, so the dashboard,
-  // checklist and CLI never read undefined after the multi-project refactor.
   const def = s.projects[s.default_project_ref] || null;
   const derived = {
     configured: Boolean(s.access_token),
+    project_ready: Boolean(def && def.url && def.publishable_key),
     project_ref: s.default_project_ref || '',
     url: (def && def.url) || '',
     has_key: Boolean(def && def.publishable_key),
     key_tail: tail(def && def.publishable_key),
     status: (def && def.status) || '',
     health: (def && def.health) || '',
-    db_ok: /ACTIVE_HEALTHY/.test((def && def.health) || ''),
+    db_ok: healthy(def),
     schema_complete: Boolean(def && (def.schema_applied || []).length >= 2),
     schema_files: (def && (def.schema_applied || []).length) || 0,
     db_password_stored: Boolean(def && def.db_password_stored)
@@ -206,7 +224,7 @@ export function clearAccessToken() {
   return maskedConfig();
 }
 
-/** Strong, unique, URL-safe. Shown ONCE; cannot be rotated via the API. */
+/** Strong, unique. Shown ONCE; Supabase cannot rotate it via the API. */
 export function generateDbPassword() {
   return randomBytes(24).toString('base64url') + 'A7!';
 }
@@ -218,7 +236,6 @@ export function assertPublicKey(key) {
   throw new Error('Key must be sb_publishable_… or a legacy anon JWT.');
 }
 
-/** Resolved public credentials for a site's project. Never includes secrets. */
 export function publicSupabaseFor(ref) {
   const c = loadConfig();
   const r = ref || c.supabase.default_project_ref;
@@ -234,7 +251,7 @@ export function pgParams(ref) {
   const c = loadConfig();
   const p = c.supabase.projects[ref || c.supabase.default_project_ref];
   if (!p) throw new Error('No project bound to this site.');
-  if (!p.db_password_stored || !p.db_password) throw new Error('DB password not stored for this project. Use the Management API path, or re-enter it.');
+  if (!p.db_password_stored || !p.db_password) throw new Error('DB password not stored for this project. Use the Management API path.');
   return { host: 'db.' + p.ref + '.supabase.co', port: 5432, user: 'postgres', database: 'postgres', password: p.db_password, mode: 'direct' };
 }
 

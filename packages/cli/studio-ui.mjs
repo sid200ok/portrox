@@ -401,9 +401,10 @@ function setupSteps(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
   return [
     {d:!AUTH.weakPassword,t:'Replace the default password',s:'Settings → Security'},
-    {d:!!sb.configured,t:'Connect Supabase project',s:'Project URL and publishable key'},
-    {d:!!sb.db_configured,t:'Set the database password',s:'The DSN is derived; only the password is asked'},
-    {d:!!sb.db_ok,t:'Verify the database connection',s:'Read-only probe over TLS'},
+    {d:!!(sb.account&&sb.account.configured),t:'Connect Supabase account',s:'Personal access token (sbp_)'},
+    {d:(sb.project_count||0)>0,t:'Load or create a project',s:'One account, many projects'},
+    {d:!!sb.project_ready,t:'Fetch the publishable key',s:'Default project resolves URL + key'},
+    {d:!!sb.schema_complete,t:'Bootstrap the Portrox schema',s:'Recorded against the default project'},
     {d:!!gh.configured,t:'Connect GitHub',s:'Personal access token, repo + workflow'},
     {d:S.sites.length>0,t:'Create a portfolio site',s:'user, project, org or custom mode'},
     {d:S.sites.some(function(s){return s.cfg&&s.cfg.registered}),t:'Register a site',s:'Create the tenant row under your owner id'},
@@ -419,7 +420,7 @@ function vDashboard(){
   return '<div class="grid g4" style="margin-bottom:16px">'
    +metric('layers','Sites',n,n===1?'1 portfolio workspace':'portfolio workspaces')
    +metric('up','Published',pub,pub?'live on GitHub Pages':'none live yet')
-   +metric('db','Supabase',sb.db_ok?'Ready':(sb.db_configured?'Test DB':(sb.configured?'Password':'Off')),sb.configured?(sb.project_ref||sb.url||''):'not connected')
+   +metric('db','Supabase',sb.db_ok?'Ready':(sb.project_ready?'Schema?':(sb.project_count?'Fetch key':'Off')),sb.project_ref||'no project')
    +metric('git','GitHub',gh.configured?(gh.login||'On'):'Off',gh.configured?'token validated':'not connected')
    +'</div><div class="grid g2">'
    +'<div class="card"><header><h3>Getting started</h3><span class="pill '+(done===steps.length?'ok':'acc')+'">'+done+'/'+steps.length+'</span></header>'
@@ -543,30 +544,29 @@ function vSettings(){
         :'<p class="note">No projects loaded yet.</p>')
       +'</div>';
   } else if(S.sub==='supabase'){
-    var regions=sb.regions||[];
-    body='<div class="card"><header><h3>Supabase project</h3>'+(sb.configured?'<span class="pill ok"><span class="dot"></span>Saved</span>':'<span class="pill mute">Not set</span>')+'</header>'
-      +'<p class="desc">Three values only. The connection string is <b>derived for you</b> from the project reference — you never type a DSN. The publishable key is public and is the only key that reaches a rendered site.</p>'
-      +'<form id="f-sb">'
-      +'<div class="field"><label>Project URL</label><input class="inp mono" id="sb-url" placeholder="https://xxxx.supabase.co" value="'+h(sb.url||'')+'"></div>'
-      +'<div class="field"><label>Publishable key</label><div class="pw"><input class="inp mono" id="sb-key" type="password" placeholder="sb_publishable_…"></div>'
-      +'<p class="hint">'+(sb.configured?'Stored key ends ·'+h(sb.key_tail)+'. Leave blank to keep it.':'Supabase → Project Settings → API → publishable / anon key.')+'</p></div>'
-      +'<div class="field"><label>Database password</label><div class="pw"><input class="inp mono" id="sb-dbpw" type="password" placeholder="your Supabase database password" autocomplete="new-password"></div>'
-      +'<p class="hint">'+(sb.db_configured?'Stored password ends ·'+h(sb.db_password_tail)+'. Leave blank to keep it.':'Supabase → Project Settings → Database. Only the password is asked; host, port, user and database are filled in automatically.')+'</p></div>'
-      +'<div class="field"><label>Project region (for the IPv4 pooler)</label><select class="inp" id="sb-region"><option value="">— direct connection only —</option>'
-      +regions.map(function(r){return '<option value="'+h(r)+'"'+(sb.region===r?' selected':'')+'>'+h(r)+'</option>'}).join('')+'</select>'
-      +'<p class="hint">The direct host is IPv6-only on the free tier. If WSL has no IPv6 route, select your region so the IPv4 session pooler can be used.</p></div>'
-      +'<button class="btn pri" type="submit">Save project</button></form></div>'
-      +'<div class="card" style="margin-top:14px"><header><h3>Database connection</h3>'
-      +(sb.db_ok?'<span class="pill ok"><span class="dot"></span>Reachable</span>':(sb.db_configured?'<span class="pill warn">Untested</span>':'<span class="pill mute">Password needed</span>'))+'</header>'
-      +'<p class="desc">The Studio connects as the database administrator over TLS. Credentials travel in the process environment and SQL on stdin — never in a command line.</p>'
-      +'<dl class="kv"><dt>Project ref</dt><dd class="mono">'+h(sb.project_ref||'—')+'</dd>'
-      +'<dt>Direct DSN</dt><dd class="mono">'+h(sb.dsn_direct||'—')+'</dd>'
-      +'<dt>Pooler DSN</dt><dd class="mono">'+h(sb.dsn_pooler||'— select a region —')+'</dd>'
-      +'<dt>Last mode</dt><dd>'+h(sb.db_mode||'—')+'</dd>'
-      +'<dt>Server</dt><dd>'+h(sb.server_version||'—')+'</dd></dl>'
-      +(sb.db_error?'<div class="alert err" style="margin-top:14px">'+h(sb.db_error)+'</div>':'')
-      +'<div class="hr"></div><button class="btn pri" data-act="dbtest">'+ic('db')+'<span>Test connection</span></button>'
-      +'<p class="hint" style="margin-top:10px">Requires <span class="mono">psql</span>. Install with <span class="mono">sudo apt-get install -y postgresql-client</span>.</p></div>';
+    /* PORTROX_PROJECT_TAB — real project binding. No deleted endpoints. */
+    var pjs=sb.projects||[],ac=sb.account||{};
+    body='<div class="card"><header><h3>Project binding</h3>'
+      +(sb.project_ref?'<span class="pill ok"><span class="dot"></span>'+h(sb.project_ref)+'</span>':'<span class="pill warn">No default</span>')+'</header>'
+      +'<p class="desc">One Supabase account drives many projects. The default project is used by new sites; each site can override it in Studio, Details, Database. The renderer resolves the bound project at build time.</p>'
+      +(ac.configured?'':'<div class="alert warn">Connect the account first: <b>Supabase account</b> tab.</div>')
+      +(pjs.length?'<div class="tblwrap"><table><thead><tr><th>Project</th><th>Status</th><th>Key</th><th>Schema</th><th></th></tr></thead><tbody>'
+        +pjs.map(function(p){return '<tr><td><div class="name">'+h(p.name||p.ref)+'</div><div class="sub mono">'+h(p.url||'')+'</div></td>'
+          +'<td>'+(p.healthy?'<span class="pill ok"><span class="dot"></span>Healthy</span>':'<span class="pill mute">'+h(p.status||'?')+'</span>')+'</td>'
+          +'<td>'+(p.has_key?'<span class="pill ok">key set</span>':'<span class="pill warn">none</span>')+'</td>'
+          +'<td>'+(p.schema_complete?'<span class="pill ok">'+p.schema_applied.length+' files</span>':'<span class="pill warn">not recorded</span>')+'</td>'
+          +'<td class="act"><button class="btn sm" data-act="pkey" data-ref="'+h(p.ref)+'">Key</button>'
+          +'<button class="btn sm" data-act="pboot" data-ref="'+h(p.ref)+'">Bootstrap</button>'
+          +'<button class="btn sm" data-act="phealth" data-ref="'+h(p.ref)+'">Health</button>'
+          +'<button class="btn sm'+(sb.project_ref===p.ref?' pri':'')+'" data-act="pdefault" data-ref="'+h(p.ref)+'">Default</button></td></tr>'}).join('')
+        +'</tbody></table></div>'
+        :'<p class="note">No projects yet. Validate the account token, then Refresh projects or Create project.</p>')
+      +'<div class="hr"></div><dl class="kv"><dt>Default ref</dt><dd class="mono">'+h(sb.project_ref||'—')+'</dd>'
+      +'<dt>Resolved URL</dt><dd class="mono">'+h(sb.url||'—')+'</dd>'
+      +'<dt>Project ready</dt><dd>'+(sb.project_ready?'yes':'no')+'</dd>'
+      +'<dt>Healthy</dt><dd>'+(sb.db_ok?'yes':'no')+'</dd>'
+      +'<dt>Schema files</dt><dd>'+(sb.schema_files||0)+'</dd></dl>'
+      +'<p class="hint" style="margin-top:12px">Bootstrap applies the Portrox schema only. Legacy sample-site history is never pushed into a new project.</p></div>';
   } else if(S.sub==='github'){
     body='<div class="card"><header><h3>Personal access token</h3>'+(gh.configured?'<span class="pill ok"><span class="dot"></span>Validated</span>':'<span class="pill mute">Not set</span>')+'</header>'
       +'<p class="desc">Classic token with <span class="mono">repo</span> + <span class="mono">workflow</span>, or fine-grained with Contents, Pages, Administration and Workflows write. Passed to git through the environment only — never argv, never <span class="mono">.git/config</span>.</p>'
@@ -645,8 +645,6 @@ function bind(){
   document.querySelectorAll('[data-sub]').forEach(function(b){b.onclick=function(){S.sub=b.getAttribute('data-sub');render()}});
   document.querySelectorAll('[data-act]').forEach(function(b){b.onclick=function(){act(b.getAttribute('data-act'),b.getAttribute('data-id'),b)}});
   var f;
-  if((f=$('f-sb')))f.onsubmit=function(e){e.preventDefault();busy(e.target,true);
-    api('/api/config/supabase',{url:$('sb-url').value,publishable_key:$('sb-key').value,db_password:$('sb-dbpw').value,region:$('sb-region').value}).then(function(c){S.cfg=c;toast('Supabase project saved. DSN derived.','ok');logline('supabase project saved ref='+(c.supabase.project_ref||''),'ok');render()}).catch(function(x){toast(x.message,'err');logline('supabase: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
   if((f=$('f-gh')))f.onsubmit=function(e){e.preventDefault();busy(e.target,true);
     api('/api/config/github',{token:$('gh-tok').value}).then(function(c){S.cfg=c;toast('GitHub token validated.','ok');logline('github token validated','ok');render()}).catch(function(x){toast(x.message,'err');logline('github: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
   if((f=$('ap-side')))f.onchange=function(){setSide(f.value)};
@@ -665,6 +663,7 @@ function act(a,id,btn){
   if(a==='sbrefresh')return api('/api/supabase/refresh',{}).then(function(c){S.cfg=c;toast('Projects refreshed.','ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='sbforget')return api('/api/supabase/forget',{}).then(function(c){S.cfg=c;toast('Supabase token removed.','info');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='pdefault')return api('/api/supabase/default',{ref:btn.getAttribute('data-ref')}).then(function(c){S.cfg=c;toast('Default project set.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='pboot'){var pr=btn.getAttribute('data-ref');btn.disabled=true;btn.classList.add('busy');logline('bootstrap '+pr+' …');return api('/api/supabase/projects/'+pr+'/schema',{bootstrap:true}).then(function(j){toast('Bootstrap: '+j.count+' files via '+j.via,'ok');logline('bootstrap '+pr+' OK '+JSON.stringify(j),'ok');return api('/api/config').then(function(c){S.cfg=c;render()})}).catch(function(x){toast(x.message,'err');logline('bootstrap FAILED: '+x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})}
   if(a==='pkey'||a==='pschema'||a==='phealth'){var ref=btn.getAttribute('data-ref');var ep=a==='pkey'?'key':(a==='pschema'?'schema':'health');
     btn.disabled=true;btn.classList.add('busy');logline(a+' '+ref+' …');
     return api('/api/supabase/projects/'+ref+'/'+ep,{}).then(function(j){logline(a+' '+ref+' OK '+JSON.stringify(j),'ok');toast(a+' succeeded','ok');return api('/api/config').then(function(c){S.cfg=c;render()})}).catch(function(x){logline(a+' '+ref+' FAILED: '+x.message,'err');toast(x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})};
@@ -673,17 +672,6 @@ function act(a,id,btn){
     btn.disabled=true;btn.classList.add('busy');logline(a+' '+id+' …');
     return api('/api/sites/'+encodeURIComponent(id)+'/'+ep2,{}).then(function(j){logline(a+' '+id+' OK '+JSON.stringify(j),'ok');toast(a+' succeeded','ok');return load()}).catch(function(x){logline(a+' '+id+' FAILED: '+x.message,'err');toast(x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})};
   if(a==='pnew')return newProjectModal(btn.getAttribute('data-site'));
-  if(a==='dbtest'){if(btn){btn.disabled=true;btn.classList.add('busy')}logline('testing database connection …');
-    return api('/api/config/test-db',{}).then(function(c){S.cfg=c;var d=c.supabase;
-      if(d.db_ok){toast('Database reachable via '+d.db_mode+' ('+d.server_version+')','ok');logline('database OK mode='+d.db_mode+' server='+d.server_version,'ok')}
-      else{toast('Database test failed','err');logline('database FAILED: '+d.db_error,'err')}render()})
-      .catch(function(x){toast(x.message,'err');logline('database: '+x.message,'err')})
-      .finally(function(){if(btn){btn.disabled=false;btn.classList.remove('busy')}});}
-  if(a==='clearlog'){S.log=[];render();return}
-  if(a==='detail'){S.sel=id;render();return}
-  if(a==='closedetail'){S.sel=null;render();return}
-  if(a==='navtoggle'){toggleNav();return}
-  if(a==='navreset'){lss('portrox.nav','expanded');lss('portrox.side','left');applyNav();render();toast('Navigation preferences reset.','info');return}
   if(a==='build'||a==='register'||a==='publish'){
     if(a==='publish'&&!confirm('Publish '+id+'?'+NL+NL+'This force-pushes the rendered bundle to the gh-pages branch, switches that repository to branch deployment, and marks the site live.'))return;
     if(btn){btn.disabled=true;btn.classList.add('busy')}
