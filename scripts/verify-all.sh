@@ -10,8 +10,11 @@ stop(){ printf '\nBLOCKED: %s\n' "$1"; exit 1; }
 step "preflight"
 node scripts/preflight.mjs || stop "preflight failed"
 
+step "emitted browser script"
+node scripts/verify-ui.mjs || stop "emitted UI script invalid — pages would render empty"
+
 step "auth lifecycle regression (sandbox)"
-node scripts/verify-auth.mjs || stop "auth regression failed — do not proceed"
+node scripts/verify-auth.mjs || stop "auth regression failed"
 
 step "build"
 portrox build --all || stop "build failed"
@@ -25,14 +28,14 @@ node scripts/verify-daemon.mjs || stop "daemon verification failed"
 step "credential strength gate"
 WEAK="$(node -e 'import("./packages/cli/auth-store.mjs").then(m=>process.stdout.write(m.publicState().weakPassword?"yes":"no"))')"
 echo "default password active: $WEAK"
-[ "$WEAK" = "no" ] || stop "Studio password is still the shipped default. Open the Studio -> Settings -> Security -> Change credentials and set a new PASSWORD (changing only the username does not count)."
+[ "$WEAK" = "no" ] || stop "Studio password is still the default. Settings -> Security -> Change credentials, set a new PASSWORD (a username change does not count)."
 
 step "config precondition"
 CFG="$(node -e 'import("./packages/cli/config-store.mjs").then(m=>{const c=m.loadConfig();const s=c.supabase||{},g=c.github||{};process.stdout.write([s.url?"sb":"-",s.user_id?"auth":"-",g.token?"gh":"-"].join(" "))})')"
 echo "config: $CFG"
 case "$CFG" in
   "sb auth gh") echo "all credentials present" ;;
-  *) stop "Studio Setup incomplete. Open the Studio -> Settings -> Supabase (URL + key, then sign in) and GitHub (PAT)." ;;
+  *) stop "Setup incomplete. Settings -> Supabase (URL + key, then sign in) and Settings -> GitHub (PAT)." ;;
 esac
 
 step "rpc (positive)"

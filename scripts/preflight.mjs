@@ -13,6 +13,7 @@ const need = [
   'supabase/migrations/20261117220000_portrox_init.sql',
   'scripts/audit-secrets.sh','scripts/gitleaks-staged.sh','scripts/triage.mjs',
   'scripts/verify-render.mjs','scripts/verify-rpc.mjs','scripts/verify-daemon.mjs',
+  'scripts/verify-ui.mjs','scripts/verify-auth.mjs',
   'scripts/verify-live.mjs','scripts/verify-all.sh',
   'sites/sid200ok.github.io/site.json',
   'sites/sid200ok.github.io/content/intro.md',
