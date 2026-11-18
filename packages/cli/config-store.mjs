@@ -17,6 +17,8 @@ import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSy
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { BOOTSTRAP_FILES } from './supabase-mgmt.mjs';
+export { BOOTSTRAP_FILES };
 
 export const HOME = process.env.PORTROX_HOME || join(homedir(), '.portrox');
 const FILE = join(HOME, 'config.json');
@@ -105,6 +107,20 @@ export function saveConfig(c) {
 
 const tail = s => (typeof s === 'string' && s.length > 6) ? s.slice(-4) : '';
 
+/**
+ * A project is schema-complete ONLY when every Portrox bootstrap migration is
+ * recorded. A count >= 2 was wrong: two LEGACY migrations satisfied it while
+ * public.sites did not exist.
+ */
+export function schemaComplete(rec) {
+  const applied = (rec && rec.schema_applied) || [];
+  return BOOTSTRAP_FILES.every(f => applied.includes(f));
+}
+export function schemaMissing(rec) {
+  const applied = (rec && rec.schema_applied) || [];
+  return BOOTSTRAP_FILES.filter(f => applied.includes(f) === false);
+}
+
 export function projectRecord(ref) {
   const c = loadConfig();
   return c.supabase.projects[ref] || null;
@@ -142,7 +158,8 @@ export function maskedConfig() {
     status: p.status, url: p.url, created_at: p.created_at,
     has_key: Boolean(p.publishable_key), key_kind: p.key_kind, key_tail: tail(p.publishable_key),
     schema_applied: p.schema_applied, schema_via: p.schema_via, schema_at: p.schema_at,
-    schema_complete: (p.schema_applied || []).length >= 2,
+    schema_complete: schemaComplete(p),
+    schema_missing: schemaMissing(p),
     health: p.health, health_at: p.health_at, healthy: healthy(p),
     db_password_stored: Boolean(p.db_password_stored),
     last_error: p.last_error
@@ -159,7 +176,8 @@ export function maskedConfig() {
     status: (def && def.status) || '',
     health: (def && def.health) || '',
     db_ok: healthy(def),
-    schema_complete: Boolean(def && (def.schema_applied || []).length >= 2),
+    schema_complete: schemaComplete(def),
+    schema_missing: schemaMissing(def),
     schema_files: (def && (def.schema_applied || []).length) || 0,
     db_password_stored: Boolean(def && def.db_password_stored)
   };

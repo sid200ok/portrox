@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   maskedConfig, loadConfig, setAccessToken, recordTokenError, clearAccessToken, setDefaultProject,
   accessToken, upsertProject, projectRecord, generateDbPassword, publicSupabaseFor,
-  setGithub, gh, gitEnv, FREE_ACTIVE_PROJECT_LIMIT
+  setGithub, gh, gitEnv, FREE_ACTIVE_PROJECT_LIMIT, reconcileSchema, schemaComplete, schemaMissing
 } from './config-store.mjs';
 import * as M from './supabase-mgmt.mjs';
 import * as DB from './db-bridge.mjs';
@@ -107,7 +107,10 @@ async function registerSite(id) {
   const ref = DB.boundRef(cfg);
   if (!ref) throw new Error('No Supabase project bound. Studio -> site -> Database.');
   const p = projectRecord(ref);
-  if (!p || (p.schema_applied || []).length < 2) throw new Error('Schema not applied to project ' + ref + '. Click Apply schema first.');
+  // PORTROX_SCHEMA_GATE: require the actual bootstrap files, not a count.
+  if (!p || schemaComplete(p) === false) {
+    throw new Error('Portrox schema incomplete on ' + ref + ' — missing: ' + schemaMissing(p).join(', ') + '. Click Bootstrap first.');
+  }
   const r = await DB.registerSite(ref, id, cfg, AUTHSTORE.publicState().username);
   if (!r.ok) throw new Error('register failed: ' + redact(r.error));
   cfg.registered = true; writeCfg(id, cfg);
@@ -322,7 +325,7 @@ const server = createServer(async (req, res) => {
       if (p === '/api/supabase/regions') { try { return json(200, await M.availableRegions(accessToken())); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/supabase/projects') { try { return json(200, await createProject(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
 
-      const pk = p.match(/^\/api\/supabase\/projects\/([a-z0-9]+)\/(key|schema|health|advisor)$/);
+      const pk = p.match(/^\/api\/supabase\/projects\/([a-z0-9]+)\/(key|schema|health|advisor|reconcile)$/);
       if (pk) {
         const ref = pk[1];
         if (!projectRecord(ref)) return json(404, { error: 'unknown project ref' });
@@ -330,6 +333,23 @@ const server = createServer(async (req, res) => {
           if (pk[2] === 'key') return json(200, await DB.ensureKey(ref));
           if (pk[2] === 'schema') return json(200, await DB.applySchema(ref, REPO, { bootstrap: b.bootstrap === true }));
           if (pk[2] === 'health') return json(200, await DB.health(ref));
+          // PORTROX_RECONCILE: observe migrations applied by the Supabase CLI.
+          if (pk[2] === 'reconcile') {
+            const r = await DB.schemaStatus(ref);
+            if (!r.ok) throw new Error('cannot read supabase_migrations: ' + redact(r.error));
+            // PORTROX_CANONICAL: map each observed version to its real filename,
+            // so entries match what applySchema() records. No '_observed' suffix.
+            const raw = Array.isArray(r.rows) ? (r.rows[0] && r.rows[0].versions) : r.out;
+            const versions = String(raw || '').split(',').map(x => x.trim()).filter(Boolean);
+            const files = readdirSync(join(REPO, 'supabase', 'migrations')).filter(f => f.endsWith('.sql')).sort();
+            const canonical = [], unmatched = [];
+            for (const v of versions) {
+              const hit = files.find(f => f.startsWith(v + '_'));
+              if (hit) canonical.push(hit); else unmatched.push(v);
+            }
+            const merged = reconcileSchema(ref, canonical, 'supabase-cli');
+            return json(200, { ref, observed: versions, recorded: merged, unmatched });
+          }
           return json(200, await M.securityAdvisor(accessToken(), ref));
         } catch (e) { upsertProject(ref, { last_error: redact(e.message) }); return json(400, { error: redact(e.message) }); }
       }

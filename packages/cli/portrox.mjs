@@ -211,8 +211,10 @@ function cmdDisableAutostart() {
 function applyUiConfig(id) {
   const p = join(sitesDir, id, 'site.json');
   const cfg = JSON.parse(readFileSync(p, 'utf8'));
-  const ref = (cfg.database && cfg.database.project_ref) || '';
-  cfg.supabase = publicSupabaseFor(ref);
+  // PORTROX_RESOLVED_REF: report what was ACTUALLY used, not the raw field.
+  const declared = (cfg.database && cfg.database.project_ref) || '';
+  cfg.supabase = publicSupabaseFor(declared);
+  const ref = declared || maskedConfig().supabase.project_ref || '';
   writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
   return { cfg, ref };
 }

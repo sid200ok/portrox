@@ -34,5 +34,9 @@
     "paid_booking": false,
     "auto_email": false
   },
-  "live_url": "https://sid200ok.github.io"
+  "live_url": "https://sid200ok.github.io",
+  "database": {
+    "mode": "shared",
+    "project_ref": "nwpolajiufkxpvgdeddi"
+  }
 }

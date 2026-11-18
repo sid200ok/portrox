@@ -1,25 +1,33 @@
 /**
  * Database operations for a SITE's bound project.
  * Primary: Supabase Management API (account token, HTTPS, no DB password).
- * Fallback: psql — ONLY when the API endpoint is unavailable or transport fails.
- *           NEVER on 401/403/429: those are credential/quota problems, not reasons
- *           to silently escalate to a direct superuser connection.
+ * Fallback: psql, ONLY when the endpoint is unavailable or transport fails.
+ *           NEVER on 401/403/429 — those are credential/quota problems.
  * Secrets travel in the ENV; SQL travels on stdin. Nothing secret in argv.
  */
 import { spawnSync } from 'node:child_process';
-import { accessToken, pgParams, projectRecord, upsertProject, loadConfig } from './config-store.mjs';
+import { pgParams, projectRecord, upsertProject, loadConfig } from './config-store.mjs';
 import * as M from './supabase-mgmt.mjs';
 
 export function psqlPath() {
   const r = spawnSync('which', ['psql'], { encoding: 'utf8' });
   return r.status === 0 ? String(r.stdout).trim() : '';
 }
-
-/** Auth/quota errors must surface, not trigger a privileged fallback. */
 function fallbackAllowed(e) {
-  const s = Number(e && e.status || 0);
-  if (s === 401 || s === 403 || s === 429 || s === 402) return false;
-  return true;
+  const s = Number((e && e.status) || 0);
+  return !(s === 401 || s === 403 || s === 429 || s === 402);
+}
+function credentialsAvailable(ref) {
+  const c = loadConfig();
+  const p = c.supabase.projects[ref] || null;
+  return { token: Boolean(c.supabase.access_token), pw: Boolean(p && p.db_password_stored && p.db_password) };
+}
+function noCredentialsError(ref) {
+  const a = credentialsAvailable(ref);
+  return 'No usable credential for project ' + ref + '. '
+    + (a.token ? '' : 'Set the account token: Studio → Settings → Supabase account (sbp_…). ')
+    + (a.pw ? '' : 'Or store the DB password: Studio → New project → Remember password.')
+    + ' Terminal alternative: node scripts/reconcile-schema.mjs ' + ref;
 }
 
 function psqlQuery(ref, sql) {
@@ -38,34 +46,33 @@ function psqlQuery(ref, sql) {
 }
 
 export async function query(ref, sql, { read_only = false } = {}) {
-  try {
-    const rows = await M.runQuery(accessToken(), ref, sql, { read_only });
-    return { ok: true, via: 'management-api', rows };
-  } catch (e) {
-    if (fallbackAllowed(e) === false) {
-      return { ok: false, via: 'management-api', error: 'API refused (' + (e.status || '?') + '): ' + e.message + ' — fix the token/scope; refusing to escalate to psql.' };
-    }
-    if (psqlPath()) {
+  const a = credentialsAvailable(ref);
+  if (a.token === false && a.pw === false) return { ok: false, via: 'none', error: noCredentialsError(ref) };
+  if (a.token) {
+    try {
+      const rows = await M.runQuery(loadConfig().supabase.access_token, ref, sql, { read_only });
+      return { ok: true, via: 'management-api', rows };
+    } catch (e) {
+      if (fallbackAllowed(e) === false) {
+        return { ok: false, via: 'management-api', error: 'API refused (' + (e.status || '?') + '): ' + e.message + ' — fix the token/scope; refusing to escalate to psql.' };
+      }
+      if (a.pw === false || psqlPath() === '') return { ok: false, via: 'management-api', error: e.message };
       const r = psqlQuery(ref, sql);
-      if (r.ok) return r;
-      return { ok: false, via: 'both', error: 'api: ' + e.message + ' | psql: ' + r.error };
+      return r.ok ? r : { ok: false, via: 'both', error: 'api: ' + e.message + ' | psql: ' + r.error };
     }
-    return { ok: false, via: 'management-api', error: e.message };
   }
+  if (psqlPath() === '') return { ok: false, via: 'none', error: 'psql not found. sudo apt-get install -y postgresql-client' };
+  return psqlQuery(ref, sql);
 }
 
 export async function health(ref) {
   try {
-    const h = await M.projectHealth(accessToken(), ref);
-    const list = Array.isArray(h) ? h : [h];
-    const all = list.filter(Boolean);
+    const h = await M.projectHealth(loadConfig().supabase.access_token, ref);
+    const all = (Array.isArray(h) ? h : [h]).filter(Boolean);
     const okAll = all.length > 0 && all.every(x => x.status === 'ACTIVE_HEALTHY');
     const summary = all.map(x => (x.name || x.identifier || 'svc') + '=' + x.status).join(' ');
     const cur = projectRecord(ref);
-    upsertProject(ref, {
-      health: summary, health_at: Date.now(),
-      status: okAll ? 'ACTIVE_HEALTHY' : ((cur && cur.status) || 'UNKNOWN'), last_error: ''
-    });
+    upsertProject(ref, { health: summary, health_at: Date.now(), status: okAll ? 'ACTIVE_HEALTHY' : ((cur && cur.status) || 'UNKNOWN'), last_error: '' });
     return { ok: okAll, services: all, summary };
   } catch (e) {
     upsertProject(ref, { last_error: e.message });
@@ -73,17 +80,16 @@ export async function health(ref) {
   }
 }
 
-/** Bootstrap = Portrox schema only. Full history stays for the legacy sample project. */
 export async function applySchema(ref, repoRoot, { bootstrap = false, onStep } = {}) {
-  const r = await M.applySchema(accessToken(), ref, repoRoot, { bootstrap, onStep });
+  const r = await M.applySchema(loadConfig().supabase.access_token, ref, repoRoot, { bootstrap, onStep });
   const prev = projectRecord(ref);
-  const merged = Array.from(new Set([...((prev && prev.schema_applied) || []), ...r.applied]));
+  const merged = Array.from(new Set([...((prev && prev.schema_applied) || []), ...r.applied])).sort();
   upsertProject(ref, { schema_applied: merged, schema_via: r.via, schema_at: Date.now(), last_error: '' });
-  return r;
+  return { ...r, recorded: merged };
 }
 
 export async function ensureKey(ref) {
-  const r = await M.ensurePublishableKey(accessToken(), ref);
+  const r = await M.ensurePublishableKey(loadConfig().supabase.access_token, ref);
   upsertProject(ref, { publishable_key: r.key, key_kind: r.kind, url: 'https://' + ref + '.supabase.co', last_error: '' });
   return { kind: r.kind, tail: r.key.slice(-4) };
 }
@@ -111,8 +117,9 @@ export async function markPublished(ref, id, published) {
   return query(ref, 'update public.sites set is_published = ' + (published ? 'true' : 'false') + ', updated_at = now() where id = ' + q(id) + ';');
 }
 
+/** Aliased column so the caller never guesses between string_agg / coalesce. */
 export async function schemaStatus(ref) {
-  return query(ref, "select coalesce(string_agg(version, ',' order by version), '') from supabase_migrations.schema_migrations;", { read_only: true });
+  return query(ref, "select coalesce(string_agg(version, ',' order by version), '') as versions from supabase_migrations.schema_migrations;", { read_only: true });
 }
 
 export function boundRef(siteCfg) {
