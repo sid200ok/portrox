@@ -401,8 +401,9 @@ function setupSteps(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
   return [
     {d:!AUTH.weakPassword,t:'Replace the default password',s:'Settings → Security'},
-    {d:!!sb.configured,t:'Connect Supabase',s:'Project URL and publishable key'},
-    {d:!!sb.signed_in,t:'Sign in to Supabase',s:'Establishes the site owner identity'},
+    {d:!!sb.configured,t:'Connect Supabase project',s:'Project URL and publishable key'},
+    {d:!!sb.db_configured,t:'Set the database password',s:'The DSN is derived; only the password is asked'},
+    {d:!!sb.db_ok,t:'Verify the database connection',s:'Read-only probe over TLS'},
     {d:!!gh.configured,t:'Connect GitHub',s:'Personal access token, repo + workflow'},
     {d:S.sites.length>0,t:'Create a portfolio site',s:'user, project, org or custom mode'},
     {d:S.sites.some(function(s){return s.cfg&&s.cfg.registered}),t:'Register a site',s:'Create the tenant row under your owner id'},
@@ -418,7 +419,7 @@ function vDashboard(){
   return '<div class="grid g4" style="margin-bottom:16px">'
    +metric('layers','Sites',n,n===1?'1 portfolio workspace':'portfolio workspaces')
    +metric('up','Published',pub,pub?'live on GitHub Pages':'none live yet')
-   +metric('db','Supabase',sb.signed_in?'Ready':(sb.configured?'Sign in':'Off'),sb.configured?(sb.url||''):'not connected')
+   +metric('db','Supabase',sb.db_ok?'Ready':(sb.db_configured?'Test DB':(sb.configured?'Password':'Off')),sb.configured?(sb.project_ref||sb.url||''):'not connected')
    +metric('git','GitHub',gh.configured?(gh.login||'On'):'Off',gh.configured?'token validated':'not connected')
    +'</div><div class="grid g2">'
    +'<div class="card"><header><h3>Getting started</h3><span class="pill '+(done===steps.length?'ok':'acc')+'">'+done+'/'+steps.length+'</span></header>'
@@ -486,18 +487,30 @@ function vSettings(){
   var tabs=[['supabase','db','Supabase'],['github','git','GitHub'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='supabase'){
-    body='<div class="card"><header><h3>Project connection</h3>'+(sb.configured?'<span class="pill ok"><span class="dot"></span>Saved</span>':'<span class="pill mute">Not set</span>')+'</header>'
-      +'<p class="desc">Only the <b>publishable (anon)</b> key is accepted. Secret and service-role keys are rejected before they can reach a rendered site.</p>'
-      +'<form id="f-sb"><div class="field"><label>Project URL</label><input class="inp mono" id="sb-url" placeholder="https://xxxx.supabase.co" value="'+h(sb.url||'')+'"></div>'
+    var regions=sb.regions||[];
+    body='<div class="card"><header><h3>Supabase project</h3>'+(sb.configured?'<span class="pill ok"><span class="dot"></span>Saved</span>':'<span class="pill mute">Not set</span>')+'</header>'
+      +'<p class="desc">Three values only. The connection string is <b>derived for you</b> from the project reference — you never type a DSN. The publishable key is public and is the only key that reaches a rendered site.</p>'
+      +'<form id="f-sb">'
+      +'<div class="field"><label>Project URL</label><input class="inp mono" id="sb-url" placeholder="https://xxxx.supabase.co" value="'+h(sb.url||'')+'"></div>'
       +'<div class="field"><label>Publishable key</label><div class="pw"><input class="inp mono" id="sb-key" type="password" placeholder="sb_publishable_…"></div>'
-      +'<p class="hint">'+(sb.configured?'Stored key ends ·'+h(sb.key_tail)+'. Leave blank to keep it and change only the URL.':'Supabase → Settings → API.')+'</p></div>'
-      +'<button class="btn pri" type="submit">Save connection</button></form></div>'
-      +'<div class="card" style="margin-top:14px"><header><h3>Owner sign-in</h3>'+(sb.signed_in?'<span class="pill ok"><span class="dot"></span>Signed in</span>':'<span class="pill warn">Required</span>')+'</header>'
-      +'<p class="desc">Sign in with a Supabase Auth user. Its UUID becomes the owner of every site you register. The password is used once and never stored.</p>'
-      +(sb.signed_in
-        ?'<dl class="kv"><dt>Email</dt><dd>'+h(sb.email)+'</dd><dt>Owner UUID</dt><dd class="mono">'+h(sb.user_id)+'</dd><dt>Token expires in</dt><dd>'+Math.round((sb.expires_in||0)/60)+' min</dd></dl><div class="hr"></div><button class="btn danger" data-act="sbout">Sign out of Supabase</button>'
-        :'<form id="f-sbin"><div class="field"><label>Auth email</label><input class="inp" id="sb-email" type="email" autocomplete="username" value="'+h(sb.email||'')+'"></div><div class="field"><label>Auth password</label><div class="pw"><input class="inp" id="sb-pass" type="password" autocomplete="current-password"></div></div><button class="btn pri" type="submit">Sign in</button></form>')
-      +'</div>';
+      +'<p class="hint">'+(sb.configured?'Stored key ends ·'+h(sb.key_tail)+'. Leave blank to keep it.':'Supabase → Project Settings → API → publishable / anon key.')+'</p></div>'
+      +'<div class="field"><label>Database password</label><div class="pw"><input class="inp mono" id="sb-dbpw" type="password" placeholder="your Supabase database password" autocomplete="new-password"></div>'
+      +'<p class="hint">'+(sb.db_configured?'Stored password ends ·'+h(sb.db_password_tail)+'. Leave blank to keep it.':'Supabase → Project Settings → Database. Only the password is asked; host, port, user and database are filled in automatically.')+'</p></div>'
+      +'<div class="field"><label>Project region (for the IPv4 pooler)</label><select class="inp" id="sb-region"><option value="">— direct connection only —</option>'
+      +regions.map(function(r){return '<option value="'+h(r)+'"'+(sb.region===r?' selected':'')+'>'+h(r)+'</option>'}).join('')+'</select>'
+      +'<p class="hint">The direct host is IPv6-only on the free tier. If WSL has no IPv6 route, select your region so the IPv4 session pooler can be used.</p></div>'
+      +'<button class="btn pri" type="submit">Save project</button></form></div>'
+      +'<div class="card" style="margin-top:14px"><header><h3>Database connection</h3>'
+      +(sb.db_ok?'<span class="pill ok"><span class="dot"></span>Reachable</span>':(sb.db_configured?'<span class="pill warn">Untested</span>':'<span class="pill mute">Password needed</span>'))+'</header>'
+      +'<p class="desc">The Studio connects as the database administrator over TLS. Credentials travel in the process environment and SQL on stdin — never in a command line.</p>'
+      +'<dl class="kv"><dt>Project ref</dt><dd class="mono">'+h(sb.project_ref||'—')+'</dd>'
+      +'<dt>Direct DSN</dt><dd class="mono">'+h(sb.dsn_direct||'—')+'</dd>'
+      +'<dt>Pooler DSN</dt><dd class="mono">'+h(sb.dsn_pooler||'— select a region —')+'</dd>'
+      +'<dt>Last mode</dt><dd>'+h(sb.db_mode||'—')+'</dd>'
+      +'<dt>Server</dt><dd>'+h(sb.server_version||'—')+'</dd></dl>'
+      +(sb.db_error?'<div class="alert err" style="margin-top:14px">'+h(sb.db_error)+'</div>':'')
+      +'<div class="hr"></div><button class="btn pri" data-act="dbtest">'+ic('db')+'<span>Test connection</span></button>'
+      +'<p class="hint" style="margin-top:10px">Requires <span class="mono">psql</span>. Install with <span class="mono">sudo apt-get install -y postgresql-client</span>.</p></div>';
   } else if(S.sub==='github'){
     body='<div class="card"><header><h3>Personal access token</h3>'+(gh.configured?'<span class="pill ok"><span class="dot"></span>Validated</span>':'<span class="pill mute">Not set</span>')+'</header>'
       +'<p class="desc">Classic token with <span class="mono">repo</span> + <span class="mono">workflow</span>, or fine-grained with Contents, Pages, Administration and Workflows write. Passed to git through the environment only — never argv, never <span class="mono">.git/config</span>.</p>'
@@ -577,9 +590,7 @@ function bind(){
   document.querySelectorAll('[data-act]').forEach(function(b){b.onclick=function(){act(b.getAttribute('data-act'),b.getAttribute('data-id'),b)}});
   var f;
   if((f=$('f-sb')))f.onsubmit=function(e){e.preventDefault();busy(e.target,true);
-    api('/api/config/supabase',{url:$('sb-url').value,publishable_key:$('sb-key').value}).then(function(c){S.cfg=c;toast('Supabase connection saved.','ok');logline('supabase connection saved','ok');render()}).catch(function(x){toast(x.message,'err');logline('supabase: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
-  if((f=$('f-sbin')))f.onsubmit=function(e){e.preventDefault();busy(e.target,true);
-    api('/api/config/signin',{email:$('sb-email').value,password:$('sb-pass').value}).then(function(c){S.cfg=c;toast('Signed in to Supabase.','ok');logline('supabase sign-in ok','ok');render()}).catch(function(x){toast(x.message,'err');logline('sign-in: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
+    api('/api/config/supabase',{url:$('sb-url').value,publishable_key:$('sb-key').value,db_password:$('sb-dbpw').value,region:$('sb-region').value}).then(function(c){S.cfg=c;toast('Supabase project saved. DSN derived.','ok');logline('supabase project saved ref='+(c.supabase.project_ref||''),'ok');render()}).catch(function(x){toast(x.message,'err');logline('supabase: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
   if((f=$('f-gh')))f.onsubmit=function(e){e.preventDefault();busy(e.target,true);
     api('/api/config/github',{token:$('gh-tok').value}).then(function(c){S.cfg=c;toast('GitHub token validated.','ok');logline('github token validated','ok');render()}).catch(function(x){toast(x.message,'err');logline('github: '+x.message,'err')}).finally(function(){busy(e.target,false)})};
   if((f=$('ap-side')))f.onchange=function(){setSide(f.value)};
@@ -593,7 +604,12 @@ function act(a,id,btn){
   if(a==='recq')return recQModal();
   if(a==='reck')return recKModal();
   if(a==='signout')return api('/api/auth/logout',{}).then(function(){location.reload()}).catch(function(){location.reload()});
-  if(a==='sbout')return api('/api/config/signout',{}).then(function(c){S.cfg=c;toast('Signed out of Supabase.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='dbtest'){if(btn){btn.disabled=true;btn.classList.add('busy')}logline('testing database connection …');
+    return api('/api/config/test-db',{}).then(function(c){S.cfg=c;var d=c.supabase;
+      if(d.db_ok){toast('Database reachable via '+d.db_mode+' ('+d.server_version+')','ok');logline('database OK mode='+d.db_mode+' server='+d.server_version,'ok')}
+      else{toast('Database test failed','err');logline('database FAILED: '+d.db_error,'err')}render()})
+      .catch(function(x){toast(x.message,'err');logline('database: '+x.message,'err')})
+      .finally(function(){if(btn){btn.disabled=false;btn.classList.remove('busy')}});}
   if(a==='clearlog'){S.log=[];render();return}
   if(a==='detail'){S.sel=id;render();return}
   if(a==='closedetail'){S.sel=null;render();return}

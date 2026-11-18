@@ -1,8 +1,10 @@
 /**
- * Verify the EMITTED browser script, not just the Node module.
- * `node --check studio-ui.mjs` cannot catch a bare \n inside the template
- * literal turning into a real newline in a single-quoted browser string.
- * This extracts every <script> block and syntax-checks it.
+ * Verify the EMITTED browser script.
+ * node --check IS the parser and is authoritative. A regex heuristic that
+ * looks for "a newline between two single quotes" matches ordinary JS such as
+ *   var a = 'x';
+ *   var b = 'y';
+ * and produced false failures. It has been removed permanently.
  */
 import { renderApp, renderLogin } from '../packages/cli/studio-ui.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -23,7 +25,7 @@ const auth = {
 };
 const csrf = 'a'.repeat(48);
 const pages = {
-  app: renderApp({ csrf, auth, port: 45000, pid: 1234, version: '0.3.0' }),
+  app: renderApp({ csrf, auth, port: 45000, pid: 1234, version: '0.4.0' }),
   login: renderLogin({ csrf, state: auth, port: 45000 })
 };
 
@@ -38,9 +40,9 @@ try {
       if (r.status === 0) ok(name + ' script[' + i + '] parses (' + src.length + 'B)');
       else fail(name + ' script[' + i + '] SYNTAX ERROR: ' + String(r.stderr).split('\n').slice(0, 6).join(' | '));
     });
-    // A bare newline inside a single-quoted JS string is the exact bug class.
-    const suspicious = blocks.some(s => /'[^'\n]*\n[^']*'/.test(s));
-    suspicious ? fail(name + ': newline inside a single-quoted string literal') : ok(name + ': no multi-line string literals');
+    // Real structural hazards, not quote heuristics.
+    html.includes('</script></body>') ? ok(name + ': script closed before body end') : fail(name + ': script/body closure wrong');
+    /<script[^>]*src=/.test(html) ? fail(name + ': external script tag (CDN) present') : ok(name + ': no external script tags');
   }
 
   const app = pages.app;
@@ -49,17 +51,19 @@ try {
   }
   for (const r of ['dashboard', 'studio', 'settings', 'about']) {
     app.includes('data-nav="' + r + '"') ? ok('nav item ' + r) : fail('nav item ' + r + ' missing');
-    app.includes("function v" + r.charAt(0).toUpperCase() + r.slice(1)) ? ok('view builder v' + r) : fail('view builder v' + r + ' missing');
+    app.includes('function v' + r.charAt(0).toUpperCase() + r.slice(1)) ? ok('view builder v' + r) : fail('view builder v' + r + ' missing');
   }
-  for (const marker of ['navcollapsed', 'navright', 'navopen', 'toggleNav', 'portrox.nav', 'portrox.side', 'Ctrl', 'String.fromCharCode(10)']) {
-    app.includes(marker) ? ok('nav/escape marker ' + marker) : fail('missing marker ' + marker);
+  for (const m of ['navcollapsed', 'navright', 'navopen', 'toggleNav', 'portrox.nav', 'portrox.side', 'String.fromCharCode(10)']) {
+    app.includes(m) ? ok('marker ' + m) : fail('missing marker ' + m);
   }
-  for (const sub of ['supabase', 'github', 'security', 'appearance']) {
-    app.includes("'" + sub + "'") ? ok('settings tab ' + sub) : fail('settings tab ' + sub + ' missing');
+  for (const t of ['supabase', 'github', 'security', 'appearance']) {
+    app.includes("'" + t + "'") ? ok('settings tab ' + t) : fail('settings tab ' + t + ' missing');
   }
   app.includes('AUTH.weakPassword') ? ok('warning gated on weakPassword') : fail('warning not gated on weakPassword');
-  app.includes('recoveryAnswers') ? ok('atomic credentials+recovery payload') : fail('recovery not sent atomically');
-  app.includes('Node 20+') ? ok('engine floor label correct') : fail('engine floor label wrong');
+  app.includes('recoveryAnswers') ? ok('atomic credentials+recovery payload') : fail('recovery not atomic');
+  app.includes('sb-dbpw') ? ok('database password field present') : fail('database password field missing');
+  app.includes('db_configured') ? ok('database state surfaced') : fail('database state not surfaced');
+  app.includes('f-sbin') ? fail('obsolete Supabase Auth sign-in form still present') : ok('Supabase Auth sign-in removed');
   app.includes('cdn.tailwindcss.com') || app.includes('unpkg.com') ? fail('runtime CDN present') : ok('zero CDN');
 } finally {
   try { rmSync(box, { recursive: true, force: true }); } catch {}

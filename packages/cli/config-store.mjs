@@ -1,8 +1,12 @@
 /**
- * Portrox credential store.
- * Written ONLY by Studio UI endpoints. Never read from .env. Never returned to the browser.
- * File: ~/.portrox/config.json  mode 0600, dir 0700.
- * Passwords are used transiently for sign-in and NEVER persisted.
+ * Portrox credential store. Written ONLY by Studio UI endpoints.
+ * ~/.portrox/config.json (0600) inside a 0700 directory.
+ * Nothing secret is ever returned to the browser or placed in argv.
+ *
+ * Supabase model: the Studio is the database administrator. It needs the
+ * Project URL, the PUBLISHABLE key (public, goes into rendered sites) and the
+ * DATABASE PASSWORD. Both DSNs are derived from the project ref; the user
+ * never types a connection string.
  */
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,8 +17,22 @@ const FILE = join(HOME, 'config.json');
 const GH_API = 'https://api.github.com';
 const GH_VER = '2026-03-10';
 
+export const REGIONS = [
+  'ap-south-1', 'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1', 'ap-northeast-2',
+  'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+  'eu-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1',
+  'ca-central-1', 'sa-east-1'
+];
+
 const blank = () => ({
-  supabase: { url: '', publishable_key: '', email: '', access_token: '', refresh_token: '', expires_at: 0, user_id: '' },
+  supabase: {
+    url: '', publishable_key: '', project_ref: '',
+    db_password: '', db_name: 'postgres',
+    db_host: '', db_port: 5432, db_user: 'postgres',
+    pooler_host: '', pooler_port: 5432, pooler_user: '',
+    region: '', db_mode: '', db_ok: false, db_error: '', db_checked_at: 0, server_version: '',
+    email: '', access_token: '', refresh_token: '', expires_at: 0, user_id: ''
+  },
   github: { token: '', login: '', scopes: '' }
 });
 
@@ -43,26 +61,31 @@ export function saveConfig(c) {
 
 const tail = s => (typeof s === 'string' && s.length > 6) ? s.slice(-4) : '';
 
-/** What the browser is allowed to see. No tokens, no passwords. */
+/** Browser-safe view. No passwords, no tokens. */
 export function maskedConfig() {
   const c = loadConfig();
+  const s = c.supabase, g = c.github;
   const now = Math.floor(Date.now() / 1000);
   return {
     supabase: {
-      configured: Boolean(c.supabase.url && c.supabase.publishable_key),
-      url: c.supabase.url,
-      key_tail: tail(c.supabase.publishable_key),
-      signed_in: Boolean(c.supabase.access_token && c.supabase.user_id),
-      email: c.supabase.email,
-      user_id: c.supabase.user_id,
-      expires_in: c.supabase.expires_at ? Math.max(0, c.supabase.expires_at - now) : 0
+      configured: Boolean(s.url && s.publishable_key),
+      url: s.url,
+      project_ref: s.project_ref,
+      key_tail: tail(s.publishable_key),
+      db_configured: Boolean(s.db_password && s.db_host),
+      db_password_tail: tail(s.db_password),
+      db_host: s.db_host, db_port: s.db_port, db_user: s.db_user, db_name: s.db_name,
+      pooler_host: s.pooler_host, pooler_port: s.pooler_port, pooler_user: s.pooler_user,
+      region: s.region, regions: REGIONS,
+      db_mode: s.db_mode, db_ok: Boolean(s.db_ok), db_error: s.db_error,
+      db_checked_at: s.db_checked_at, server_version: s.server_version,
+      dsn_direct: s.db_host ? 'postgresql://' + s.db_user + ':********@' + s.db_host + ':' + s.db_port + '/' + s.db_name : '',
+      dsn_pooler: s.pooler_host ? 'postgresql://' + s.pooler_user + ':********@' + s.pooler_host + ':' + s.pooler_port + '/' + s.db_name : '',
+      signed_in: Boolean(s.access_token && s.user_id),
+      email: s.email, user_id: s.user_id,
+      expires_in: s.expires_at ? Math.max(0, s.expires_at - now) : 0
     },
-    github: {
-      configured: Boolean(c.github.token),
-      login: c.github.login,
-      token_tail: tail(c.github.token),
-      scopes: c.github.scopes
-    }
+    github: { configured: Boolean(g.token), login: g.login, token_tail: tail(g.token), scopes: g.scopes }
   };
 }
 
@@ -73,90 +96,77 @@ export function assertPublicKey(key) {
   throw new Error('Key must be sb_publishable_… / sb_anon_… or a legacy anon JWT.');
 }
 
-/** Blank key means "keep the stored key" so the URL can be edited alone. */
-export function setSupabase({ url, publishable_key }) {
+export function refFromUrl(u) {
+  const m = String(u || '').match(/^https:\/\/([a-z0-9-]+)\.supabase\.(?:co|in)$/i);
+  return m ? m[1] : '';
+}
+
+/**
+ * Single Supabase endpoint. Accepts url + publishable_key + db_password + region.
+ * Blank secret fields keep the stored value so any field can be edited alone.
+ * Both DSN endpoints are DERIVED from the project ref.
+ */
+export function setSupabase({ url, publishable_key, db_password, region }) {
   const c = loadConfig();
-  const u = String(url || '').trim().replace(/\/$/, '');
+  const s = c.supabase;
+  const u = String(url || s.url || '').trim().replace(/\/$/, '');
+  if (/^https:\/\/[A-Za-z0-9.-]+\.supabase\.(co|in)$/.test(u) === false) {
+    throw new Error('Invalid Supabase URL. Expected https://<project-ref>.supabase.co');
+  }
   let k = String(publishable_key || '').trim();
   if (!k) {
-    if (!c.supabase.publishable_key) throw new Error('Publishable key is required on first setup.');
-    k = c.supabase.publishable_key;
+    if (!s.publishable_key) throw new Error('Publishable key is required on first setup.');
+    k = s.publishable_key;
   }
-  if (/^https:\/\/[A-Za-z0-9.-]+\.supabase\.(co|in)$/.test(u) === false) throw new Error('Invalid Supabase URL (https://<ref>.supabase.co).');
   assertPublicKey(k);
-  const changed = c.supabase.url !== u || c.supabase.publishable_key !== k;
-  c.supabase.url = u; c.supabase.publishable_key = k;
-  if (changed) { c.supabase.access_token = ''; c.supabase.refresh_token = ''; c.supabase.expires_at = 0; c.supabase.user_id = ''; c.supabase.email = ''; }
+
+  let p = String(db_password || '');
+  if (!p) p = s.db_password;
+
+  const ref = refFromUrl(u);
+  const reg = String(region || s.region || '').trim();
+  const projectChanged = s.url !== u;
+
+  s.url = u;
+  s.publishable_key = k;
+  s.project_ref = ref;
+  s.db_password = p;
+  s.db_name = s.db_name || 'postgres';
+  s.db_host = 'db.' + ref + '.supabase.co';
+  s.db_port = 5432;
+  s.db_user = 'postgres';
+  s.region = reg;
+  s.pooler_host = reg ? 'aws-0-' + reg + '.pooler.supabase.com' : '';
+  s.pooler_port = 5432;
+  s.pooler_user = reg ? 'postgres.' + ref : '';
+  if (projectChanged || s.db_password !== p) { s.db_ok = false; s.db_error = ''; s.db_mode = ''; s.server_version = ''; }
+  if (projectChanged) { s.access_token = ''; s.refresh_token = ''; s.expires_at = 0; s.user_id = ''; s.email = ''; }
   saveConfig(c);
   return maskedConfig();
 }
 
-async function tokenRequest(grant, body) {
+export function recordDbResult({ ok: good, mode, error, version }) {
   const c = loadConfig();
-  if (!c.supabase.url || !c.supabase.publishable_key) throw new Error('Configure Supabase URL and publishable key first.');
-  const r = await fetch(c.supabase.url + '/auth/v1/token?grant_type=' + grant, {
-    method: 'POST',
-    headers: { apikey: c.supabase.publishable_key, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const j = await r.json().catch(() => ({}));
-  if (r.ok === false) throw new Error(j.error_description || j.msg || j.error || ('auth failed HTTP ' + r.status));
-  return j;
-}
-
-export async function signIn({ email, password }) {
-  const e = String(email || '').trim();
-  const p = String(password || '');
-  if (!e || !p) throw new Error('Email and password are required.');
-  const j = await tokenRequest('password', { email: e, password: p });
-  const c = loadConfig();
-  c.supabase.email = e;
-  c.supabase.access_token = j.access_token || '';
-  c.supabase.refresh_token = j.refresh_token || '';
-  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
-  c.supabase.user_id = (j.user && j.user.id) || '';
+  c.supabase.db_ok = Boolean(good);
+  c.supabase.db_mode = good ? (mode || '') : c.supabase.db_mode;
+  c.supabase.db_error = good ? '' : String(error || '').slice(0, 400);
+  c.supabase.server_version = good ? String(version || '') : c.supabase.server_version;
+  c.supabase.db_checked_at = Date.now();
   saveConfig(c);
   return maskedConfig();
 }
 
-export function signOut() {
+/** Connection parameters. Password lives in the ENV, never in argv. */
+export function pgParams(mode) {
   const c = loadConfig();
-  c.supabase.access_token = ''; c.supabase.refresh_token = ''; c.supabase.expires_at = 0; c.supabase.user_id = ''; c.supabase.email = '';
-  saveConfig(c);
-  return maskedConfig();
-}
-
-export async function ensureToken() {
-  const c = loadConfig();
-  if (!c.supabase.refresh_token) throw new Error('Not signed in to Supabase. Use Setup -> Sign in.');
-  const now = Math.floor(Date.now() / 1000);
-  if (c.supabase.access_token && c.supabase.expires_at - 60 > now) return c.supabase.access_token;
-  const j = await tokenRequest('refresh_token', { refresh_token: c.supabase.refresh_token });
-  c.supabase.access_token = j.access_token || '';
-  c.supabase.refresh_token = j.refresh_token || c.supabase.refresh_token;
-  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
-  if (j.user && j.user.id) c.supabase.user_id = j.user.id;
-  saveConfig(c);
-  return c.supabase.access_token;
-}
-
-/** Authenticated Supabase REST call as the signed-in owner (RLS enforced). */
-export async function sb(path, opts = {}) {
-  const c = loadConfig();
-  const tok = await ensureToken();
-  const r = await fetch(c.supabase.url + path, {
-    method: opts.method || 'GET',
-    headers: {
-      apikey: c.supabase.publishable_key,
-      Authorization: 'Bearer ' + tok,
-      'Content-Type': 'application/json',
-      ...(opts.prefer ? { Prefer: opts.prefer } : {})
-    },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body)
-  });
-  const text = await r.text();
-  let json = null; try { json = text ? JSON.parse(text) : null; } catch {}
-  return { status: r.status, ok: r.ok, json, text };
+  const s = c.supabase;
+  if (!s.db_password) throw new Error('Database password not set. Enter it in Settings → Supabase.');
+  const direct = mode !== 'pooler';
+  const host = direct ? s.db_host : s.pooler_host;
+  const user = direct ? s.db_user : s.pooler_user;
+  const port = direct ? s.db_port : s.pooler_port;
+  if (!host || !user) throw new Error('Pooler endpoint unavailable. Select your project region first.');
+  return { host, port: Number(port), user, database: s.db_name || 'postgres', password: s.db_password, mode: direct ? 'direct' : 'pooler' };
 }
 
 export async function setGithub({ token }) {
@@ -180,7 +190,7 @@ export async function setGithub({ token }) {
 
 export async function gh(path, opts = {}) {
   const c = loadConfig();
-  if (!c.github.token) throw new Error('Configure GitHub token in Setup first.');
+  if (!c.github.token) throw new Error('Configure GitHub token in Settings first.');
   const r = await fetch(GH_API + path, {
     method: opts.method || 'GET',
     headers: {
@@ -197,14 +207,10 @@ export async function gh(path, opts = {}) {
   return { status: r.status, ok: r.ok, json, text };
 }
 
-/**
- * Git credential helper reads the PAT from ENV only — never argv, never .git/config.
- * credential.helper is MULTI-VALUED: an empty value first RESETS the list so a
- * pre-existing helper (store/manager/gh) cannot answer before ours.
- */
+/** Git credential helper reads the PAT from ENV only. Empty value resets the list. */
 export function gitEnv() {
   const c = loadConfig();
-  if (!c.github.token) throw new Error('Configure GitHub token in Setup first.');
+  if (!c.github.token) throw new Error('Configure GitHub token in Settings first.');
   return {
     ...process.env,
     GH_TOKEN: c.github.token,
@@ -223,4 +229,59 @@ export function publicSupabase() {
   if (!c.supabase.url || !c.supabase.publishable_key) return { url: '', publishable_key: '' };
   assertPublicKey(c.supabase.publishable_key);
   return { url: c.supabase.url, publishable_key: c.supabase.publishable_key };
+}
+
+/* ---- retained for compatibility; the Studio UI no longer uses Auth sign-in ---- */
+async function tokenRequest(grant, body) {
+  const c = loadConfig();
+  if (!c.supabase.url || !c.supabase.publishable_key) throw new Error('Configure Supabase first.');
+  const r = await fetch(c.supabase.url + '/auth/v1/token?grant_type=' + grant, {
+    method: 'POST', headers: { apikey: c.supabase.publishable_key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (r.ok === false) throw new Error(j.error_description || j.msg || j.error || ('auth failed HTTP ' + r.status));
+  return j;
+}
+export async function signIn({ email, password }) {
+  const j = await tokenRequest('password', { email: String(email || '').trim(), password: String(password || '') });
+  const c = loadConfig();
+  c.supabase.email = String(email || '').trim();
+  c.supabase.access_token = j.access_token || '';
+  c.supabase.refresh_token = j.refresh_token || '';
+  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
+  c.supabase.user_id = (j.user && j.user.id) || '';
+  saveConfig(c);
+  return maskedConfig();
+}
+export function signOut() {
+  const c = loadConfig();
+  c.supabase.access_token = ''; c.supabase.refresh_token = ''; c.supabase.expires_at = 0; c.supabase.user_id = ''; c.supabase.email = '';
+  saveConfig(c);
+  return maskedConfig();
+}
+export async function ensureToken() {
+  const c = loadConfig();
+  if (!c.supabase.refresh_token) throw new Error('Not signed in to Supabase Auth.');
+  const now = Math.floor(Date.now() / 1000);
+  if (c.supabase.access_token && c.supabase.expires_at - 60 > now) return c.supabase.access_token;
+  const j = await tokenRequest('refresh_token', { refresh_token: c.supabase.refresh_token });
+  c.supabase.access_token = j.access_token || '';
+  c.supabase.refresh_token = j.refresh_token || c.supabase.refresh_token;
+  c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
+  if (j.user && j.user.id) c.supabase.user_id = j.user.id;
+  saveConfig(c);
+  return c.supabase.access_token;
+}
+export async function sb(path, opts = {}) {
+  const c = loadConfig();
+  const tok = await ensureToken();
+  const r = await fetch(c.supabase.url + path, {
+    method: opts.method || 'GET',
+    headers: { apikey: c.supabase.publishable_key, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', ...(opts.prefer ? { Prefer: opts.prefer } : {}) },
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body)
+  });
+  const text = await r.text();
+  let json = null; try { json = text ? JSON.parse(text) : null; } catch {}
+  return { status: r.status, ok: r.ok, json, text };
 }

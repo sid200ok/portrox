@@ -2,6 +2,8 @@
  * Portrox Studio daemon.
  * Binds 127.0.0.1:0 -> kernel assigns the port. State 0600 in a 0700 dir.
  * Every data route requires a session cookie AND the CSRF token AND a valid Host.
+ * Supabase is configured with URL + publishable key + DATABASE PASSWORD.
+ * The Studio writes to Postgres as administrator via db-bridge (psql, env-only creds).
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -10,7 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { join, extname, normalize, resolve, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { maskedConfig, setSupabase, signIn, signOut, setGithub, sb, gh, gitEnv, publicSupabase, loadConfig } from './config-store.mjs';
+import { maskedConfig, setSupabase, setGithub, gh, gitEnv, publicSupabase, loadConfig } from './config-store.mjs';
+import { testConnection, registerSiteSql, markPublishedSql, psqlPath } from './db-bridge.mjs';
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -19,7 +22,7 @@ const REPO = process.env.PORTROX_REPO || resolve(HERE, '../..');
 const HOME = process.env.PORTROX_HOME || join(homedir(), '.portrox');
 const HOST = '127.0.0.1';
 const STATE = join(HOME, 'state.json');
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const CSRF = randomBytes(24).toString('hex');
 mkdirSync(HOME, { recursive: true, mode: 0o700 });
 try { chmodSync(HOME, 0o700); } catch {}
@@ -29,13 +32,12 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=u
   '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.xml': 'application/xml; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sitesDir = join(REPO, 'sites');
 const listSites = () => existsSync(sitesDir) ? readdirSync(sitesDir).filter(n => { try { return statSync(join(sitesDir, n)).isDirectory(); } catch { return false; } }) : [];
 const cfgOf = n => { try { return JSON.parse(readFileSync(join(sitesDir, n, 'site.json'), 'utf8')); } catch { return {}; } };
 const writeCfg = (n, c) => writeFileSync(join(sitesDir, n, 'site.json'), JSON.stringify(c, null, 2) + '\n');
 const log = (...a) => console.log('[portrox]', ...a);
-const redact = s => String(s || '').replace(/ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sb_secret_[A-Za-z0-9_-]+/g, '[REDACTED]');
+const redact = s => String(s || '').replace(/ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sb_secret_[A-Za-z0-9_-]+/g, '[REDACTED]').replace(/postgresql:\/\/[^\s@]+@/g, 'postgresql://[REDACTED]@');
 
 function run(cmd, args, opts) {
   const r = spawnSync(cmd, args, { encoding: 'utf8', ...(opts || {}) });
@@ -52,19 +54,24 @@ function createSite({ name, mode, headline }) {
   let folder, repo, base_path, url, owner;
   if (m === 'user') { folder = g.login + '.github.io'; repo = g.login + '/' + folder; base_path = ''; url = 'https://' + folder; owner = g.login; }
   else if (m === 'org') { if (!base) throw new Error('org mode needs the organisation login as name'); folder = base + '.github.io'; repo = base + '/' + folder; base_path = ''; url = 'https://' + folder; owner = base; }
-  else { if (!base) throw new Error('Site name is required.'); folder = base + '.github.io'; repo = g.login + '/' + base; owner = g.login;
-    if (m === 'custom') { base_path = ''; url = ''; } else { base_path = '/' + base; url = 'https://' + g.login + '.github.io/' + base; } }
+  else {
+    if (!base) throw new Error('Site name is required.');
+    folder = base + '.github.io'; repo = g.login + '/' + base; owner = g.login;
+    if (m === 'custom') { base_path = ''; url = ''; } else { base_path = '/' + base; url = 'https://' + g.login + '.github.io/' + base; }
+  }
   const root = join(sitesDir, folder);
   if (existsSync(root)) throw new Error('Site already exists: ' + folder);
   for (const d of ['content', 'data', 'assets/avatars', 'assets/covers', 'assets/backgrounds']) mkdirSync(join(root, d), { recursive: true });
-  const cfg = { id: folder, name: folder, owner,
+  const cfg = {
+    id: folder, name: folder, owner,
     pages: { mode: m, repo, branch: 'gh-pages', base_path, cname: '' },
     seo: { title: (headline || base || folder) + ' — Portfolio', description: 'Portfolio built with Portrox.', og_image: '' },
     nav: { services: true, appointments: true, about: true, client_auth: false },
     theme: { bg: '#020617', panel: '#0f172a', accent: '#22d3ee' },
     supabase: publicSupabase(),
     flags: { available_for_hire: true, paid_booking: false, auto_email: false },
-    live_url: url, registered: false, published: false };
+    live_url: url, registered: false, published: false
+  };
   writeCfg(folder, cfg);
   writeFileSync(join(root, 'content/intro.md'), '# ' + (headline || base || folder) + '\n\nBuilder. Engineer. Available for remote work.\n');
   writeFileSync(join(root, 'content/about.md'), '## About me\n\nWrite your professional overview here.\n');
@@ -74,31 +81,24 @@ function createSite({ name, mode, headline }) {
   return cfg;
 }
 
-async function registerSite(id) {
-  const c = loadConfig();
-  if (!c.supabase.user_id) throw new Error('Sign in to Supabase in Settings first — it establishes the owner identity.');
+function registerSite(id) {
   const cfg = cfgOf(id);
-  const row = { id, owner_id: c.supabase.user_id, display_name: (cfg.seo && cfg.seo.title) || id,
-    pages_mode: cfg.pages.mode, repo: cfg.pages.repo, base_path: cfg.pages.base_path || '',
-    seo: cfg.seo || {}, nav: cfg.nav || {}, flags: cfg.flags || {}, theme: cfg.theme || {}, is_published: false };
-  const ins = await sb('/rest/v1/sites', { method: 'POST', body: row, prefer: 'return=representation' });
-  if (!ins.ok && ins.status !== 409) throw new Error('sites insert failed: ' + ins.status + ' ' + ins.text.slice(0, 200));
-  const mem = await sb('/rest/v1/site_members', { method: 'POST', body: { site_id: id, user_id: c.supabase.user_id, role: 'owner' }, prefer: 'return=minimal' });
-  if (!mem.ok && mem.status !== 409) throw new Error('site_members insert failed: ' + mem.status + ' ' + mem.text.slice(0, 200));
+  const studioOwner = AUTHSTORE.publicState().username;
+  const r = registerSiteSql(id, cfg, studioOwner);
+  if (!r.ok) throw new Error('register failed: ' + redact(r.error));
   cfg.registered = true; writeCfg(id, cfg);
-  return { registered: true, site_id: id, owner_id: c.supabase.user_id };
+  return { registered: true, site_id: id, studio_owner: studioOwner, via: r.mode, result: r.out };
 }
 
-async function buildOne(id) {
+function buildOne(id) {
   const cfg = cfgOf(id);
   cfg.supabase = publicSupabase();
   writeCfg(id, cfg);
-  const { renderSite } = await import(join(REPO, 'packages/core/render.mjs'));
-  return renderSite(join(sitesDir, id), join(REPO, 'dist', id));
+  return import(join(REPO, 'packages/core/render.mjs')).then(m => m.renderSite(join(sitesDir, id), join(REPO, 'dist', id)));
 }
 
 async function ensureRepo(cfg) {
-  const [owner] = cfg.pages.repo.split('/');
+  const owner = cfg.pages.repo.split('/')[0];
   const name = cfg.pages.repo.split('/')[1];
   const view = await gh('/repos/' + cfg.pages.repo);
   if (view.ok) return { repo: cfg.pages.repo, created: false };
@@ -110,8 +110,11 @@ async function ensureRepo(cfg) {
 }
 
 async function configurePages(cfg) {
-  const body = { build_type: 'legacy', source: { branch: cfg.pages.branch || 'gh-pages', path: '/' },
-    ...(cfg.pages.mode === 'custom' && cfg.pages.cname ? { cname: cfg.pages.cname, https_enforced: true } : {}) };
+  const body = {
+    build_type: 'legacy',
+    source: { branch: cfg.pages.branch || 'gh-pages', path: '/' },
+    ...(cfg.pages.mode === 'custom' && cfg.pages.cname ? { cname: cfg.pages.cname, https_enforced: true } : {})
+  };
   let r = await gh('/repos/' + cfg.pages.repo + '/pages', { method: 'POST', body });
   if (!r.ok) r = await gh('/repos/' + cfg.pages.repo + '/pages', { method: 'PUT', body });
   if (!r.ok) throw new Error('pages config failed: ' + r.status + ' ' + r.text.slice(0, 200));
@@ -127,7 +130,7 @@ async function configurePages(cfg) {
 async function publish(id) {
   const cfg = cfgOf(id);
   if (cfg.pages.mode === 'custom' && !cfg.pages.cname) throw new Error('custom mode: set pages.cname in site.json before publishing.');
-  if (cfg.registered !== true) await registerSite(id);
+  if (cfg.registered !== true) registerSite(id);
   await ensureRepo(cfg);
   await buildOne(id);
   const src = join(REPO, 'dist', id);
@@ -151,8 +154,8 @@ async function publish(id) {
     const push = git(['push', '-f', 'origin', 'HEAD:refs/heads/' + (cfg.pages.branch || 'gh-pages')], tmp);
     if (push.ok === false) throw new Error('push failed: ' + redact(push.err));
     const pages = await configurePages(cfg);
-    const patch = await sb('/rest/v1/sites?id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: { is_published: true }, prefer: 'return=minimal' });
-    if (!patch.ok) throw new Error('mark published failed: ' + patch.status + ' ' + patch.text.slice(0, 200));
+    const mark = markPublishedSql(id, true);
+    if (!mark.ok) throw new Error('mark published failed: ' + redact(mark.error));
     const c2 = cfgOf(id); c2.published = true; c2.registered = true; writeCfg(id, c2);
     return { url: cfg.live_url || '(set cname)', repo: cfg.pages.repo, branch: cfg.pages.branch || 'gh-pages', is_published: true, ...pages };
   } finally { rmSync(tmp, { recursive: true, force: true }); }
@@ -172,8 +175,7 @@ function readBody(req) {
   });
 }
 function cookie(req, name) {
-  const raw = String(req.headers.cookie || '');
-  for (const part of raw.split(';')) {
+  for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
     if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }
@@ -198,10 +200,8 @@ const server = createServer(async (req, res) => {
     const sid = cookie(req, 'portrox_sid');
     const sess = AUTHSTORE.session(sid);
 
-    if (req.method === 'GET' && u.pathname === '/api/health') return json(200, { ok: true, pid: process.pid, port });
-    if (req.method === 'GET' && u.pathname === '/api/session') {
-      return json(200, { authenticated: Boolean(sess), csrf: CSRF, auth: AUTHSTORE.publicState() });
-    }
+    if (req.method === 'GET' && u.pathname === '/api/health') return json(200, { ok: true, pid: process.pid, port, psql: Boolean(psqlPath()) });
+    if (req.method === 'GET' && u.pathname === '/api/session') return json(200, { authenticated: Boolean(sess), csrf: CSRF, auth: AUTHSTORE.publicState() });
     if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/index.html')) {
       return sess
         ? html(200, renderApp({ csrf: CSRF, auth: AUTHSTORE.publicState(), port, pid: process.pid, version: VERSION }))
@@ -216,7 +216,6 @@ const server = createServer(async (req, res) => {
       if (b.__oversize) return json(413, { error: 'body too large' });
       const p = u.pathname;
 
-      // ---- unauthenticated auth endpoints ----
       if (p === '/api/auth/login') {
         try {
           const r = AUTHSTORE.login(b);
@@ -227,22 +226,21 @@ const server = createServer(async (req, res) => {
       if (p === '/api/auth/recover') { try { return json(200, AUTHSTORE.recover(b)); } catch (e) { return json(400, { error: e.message }); } }
       if (p === '/api/auth/reset') { try { return json(200, AUTHSTORE.resetWithToken(b)); } catch (e) { return json(400, { error: e.message }); } }
 
-      // ---- everything below requires a session ----
       if (!sess) return json(401, { error: 'authentication required' });
 
       if (p === '/api/auth/logout') { AUTHSTORE.logout(sid); return json(200, { ok: true }, { 'Set-Cookie': 'portrox_sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' }); }
       if (p === '/api/auth/dismiss') { try { return json(200, AUTHSTORE.dismissPrompt()); } catch (e) { return json(400, { error: e.message }); } }
       if (p === '/api/auth/credentials') {
-        try { const a = AUTHSTORE.changeCredentials(b);
-          return json(200, a, { 'Set-Cookie': 'portrox_sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
-        } catch (e) { return json(400, { error: e.message }); }
+        try { const a = AUTHSTORE.changeCredentials(b); return json(200, a, { 'Set-Cookie': 'portrox_sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' }); }
+        catch (e) { return json(400, { error: e.message }); }
       }
       if (p === '/api/auth/recovery/setup') { try { return json(200, AUTHSTORE.setupRecovery(b)); } catch (e) { return json(400, { error: e.message }); } }
       if (p === '/api/auth/recovery/key') { try { return json(200, AUTHSTORE.issueRecoveryKey(b)); } catch (e) { return json(400, { error: e.message }); } }
 
-      if (p === '/api/config/supabase') { try { return json(200, setSupabase(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
-      if (p === '/api/config/signin') { try { return json(200, await signIn(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
-      if (p === '/api/config/signout') { try { return json(200, signOut()); } catch (e) { return json(400, { error: e.message }); } }
+      if (p === '/api/config/supabase' || p === '/api/config/supabase-project') {
+        try { return json(200, setSupabase(b)); } catch (e) { return json(400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/config/test-db') { try { return json(200, testConnection()); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/config/github') { try { return json(200, await setGithub(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/sites') { try { return json(200, createSite(b)); } catch (e) { return json(400, { error: e.message }); } }
 
@@ -252,7 +250,7 @@ const server = createServer(async (req, res) => {
         if (listSites().includes(id) === false) return json(404, { error: 'unknown site' });
         try {
           if (m[2] === 'build') return json(200, await buildOne(id));
-          if (m[2] === 'register') return json(200, await registerSite(id));
+          if (m[2] === 'register') return json(200, registerSite(id));
           return json(200, await publish(id));
         } catch (e) { return json(400, { error: redact(e.message) }); }
       }
@@ -285,6 +283,7 @@ server.listen(Number(process.env.PORTROX_PORT || 0), HOST, () => {
     token: CSRF, startedAt: Date.now(), repo: REPO, version: VERSION }, null, 2), { mode: 0o600 });
   try { chmodSync(STATE, 0o600); } catch {}
   log('studio listening http://' + HOST + ':' + port + ' pid=' + process.pid);
+  if (!psqlPath()) log('WARNING psql not found — install postgresql-client to enable database operations');
   if (AUTHSTORE.isDefaultCredentials()) log('WARNING default credentials admin/admin are active — rotate on first sign-in');
 });
 const bye = s => { log(s + ' -> shutdown'); try { server.close(); } catch {} process.exit(0); };
