@@ -50,7 +50,7 @@ try {
   let logged = false;
   try { logged = JSON.parse(lg.stdout).ok === true; } catch {}
   if (logged === false) {
-    console.log('SKIP authenticated checks (credentials rotated). Set PORTROX_TEST_USER / PORTROX_TEST_PASS to include them.');
+    console.log('NOTE live daemon credentials rotated — running the authenticated suite in a SANDBOX daemon instead.');
   } else {
     ok('login succeeds');
     const jdm = (statSync(box).mode & 0o777).toString(8);
@@ -89,6 +89,56 @@ try {
 
 const ss = spawnSync('bash', ['-lc', 'ss -ltnp 2>/dev/null | grep ":' + st.port + ' " || true'], { encoding: 'utf8' });
 ss.stdout.includes('127.0.0.1:' + st.port) ? ok('listener is loopback only') : fail('listener: ' + ss.stdout.trim());
+
+/* ---- Sandbox daemon: full authenticated suite with fresh admin/admin ---- */
+console.log('\n-- sandbox authenticated suite --');
+{
+  const box = mkdtempSync(join(tmpdir(), 'portrox-sbx-'));
+  const daemon = new URL('../packages/cli/studio-daemon.mjs', import.meta.url).pathname;
+  const child = spawnSync(process.execPath, ['-e',
+    'const{spawn}=require("child_process");' +
+    'const c=spawn(process.execPath,[process.argv[1]],{detached:true,stdio:"ignore",env:process.env});' +
+    'c.unref();process.stdout.write(String(c.pid));', daemon],
+    { encoding: 'utf8', env: { ...process.env, PORTROX_HOME: box, PORTROX_REPO: process.cwd(), PORTROX_PORT: '0', PORTROX_HOST: '127.0.0.1' } });
+  let sb = null;
+  for (let i = 0; i < 60; i++) {
+    try { sb = JSON.parse(readFileSync(join(box, 'state.json'), 'utf8')); if (sb && sb.port) break; } catch {}
+    spawnSync('sleep', ['0.2']);
+  }
+  if (sb === null || !sb.port) { fail('sandbox daemon did not start'); }
+  else {
+    ok('sandbox daemon on 127.0.0.1:' + sb.port);
+    const j2 = join(box, 'jar2');
+    const lg2 = curl(['-s', '-c', j2, '-X', 'POST', '-H', 'Content-Type: application/json',
+      '-H', 'x-portrox-token: ' + sb.token, sb.url + '/api/auth/login',
+      '-d', JSON.stringify({ username: 'admin', password: 'admin' })]);
+    let in2 = false; try { in2 = JSON.parse(lg2.stdout).ok === true; } catch {}
+    in2 ? ok('sandbox login admin/admin') : fail('sandbox login failed');
+    const cfg2 = curl(['-fsS', '-b', j2, sb.url + '/api/config']);
+    if (cfg2.status !== 0) fail('sandbox /api/config unreachable with session');
+    else {
+      const raw = cfg2.stdout;
+      const leaks = ['access_token', 'refresh_token', '"token"', 'password', sb.token].filter(k => raw.includes(k));
+      leaks.length === 0 ? ok('sandbox config leaks no secrets') : fail('sandbox config leaked: ' + leaks.join(', '));
+      try {
+        const j = JSON.parse(raw);
+        (j.supabase && j.supabase.account && Array.isArray(j.supabase.projects)) ? ok('multi-project config shape') : fail('config shape wrong');
+        ('configured' in j.supabase && 'schema_complete' in j.supabase) ? ok('derived fields present') : fail('derived fields missing');
+      } catch { fail('sandbox config not JSON'); }
+    }
+    const sk2 = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', j2, '-X', 'POST',
+      '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + sb.token,
+      sb.url + '/api/supabase/token', '-d', JSON.stringify({ access_token: 'sbp_invalid_probe_token' })]);
+    (sk2.stdout.trim() === '400') ? ok('invalid Supabase token rejected -> 400') : fail('invalid token accepted -> ' + sk2.stdout.trim());
+    const noTok2 = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', j2, '-X', 'POST', sb.url + '/api/supabase/refresh', '-d', '{}']);
+    noTok2.stdout.trim() === '403' ? ok('sandbox POST without CSRF -> 403') : fail('sandbox CSRF not enforced');
+    const lo2 = curl(['-s', '-b', j2, '-X', 'POST', '-H', 'x-portrox-token: ' + sb.token, sb.url + '/api/auth/logout']);
+    lo2.status === 0 ? ok('sandbox logout') : fail('sandbox logout failed');
+    code(['-b', j2, sb.url + '/api/config']) === '401' ? ok('sandbox session invalidated after logout') : fail('sandbox session survived logout');
+    try { process.kill(Number(sb.pid), 'SIGTERM'); } catch {}
+  }
+  try { rmSync(box, { recursive: true, force: true }); } catch {}
+}
 
 console.log('\nStudio URL: ' + st.url);
 console.log(bad === 0 ? 'DAEMON OK' : 'DAEMON BAD=' + bad);

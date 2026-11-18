@@ -147,11 +147,33 @@ export async function securityAdvisor(token, ref) {
   catch (e) { return { unavailable: true, error: e.message }; }
 }
 
-/** Ordered migration files from the repo. */
-export function migrationFiles(repoRoot) {
+/**
+ * BOOTSTRAP = the Portrox schema ONLY, for a brand-new tenant project.
+ * The sample site's legacy history (legacy projects / contact_messages /
+ * GRANT ALL TO anon) must NEVER be pushed into a fresh client database.
+ */
+export const BOOTSTRAP_FILES = [
+  '20261117220000_portrox_init.sql',
+  '20261118230000_studio_owner.sql'
+];
+
+export function migrationFiles(repoRoot, { bootstrap = false } = {}) {
   const dir = join(repoRoot, 'supabase', 'migrations');
-  return readdirSync(dir).filter(f => f.endsWith('.sql')).sort()
-    .map(f => ({ name: f.replace(/\.sql$/, ''), file: f, sql: readFileSync(join(dir, f), 'utf8') }));
+  let files = readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
+  if (bootstrap) files = BOOTSTRAP_FILES.filter(f => files.includes(f));
+  return files.map(f => ({ name: f.replace(/\.sql$/, ''), file: f, sql: readFileSync(join(dir, f), 'utf8') }));
+}
+
+/** The query fallback does not write supabase_migrations; do it explicitly. */
+async function recordVersion(token, ref, version, name) {
+  const lit = v => "'" + String(v).replace(/'/g, "''") + "'";
+  await runQuery(token, ref, [
+    'create schema if not exists supabase_migrations;',
+    'create table if not exists supabase_migrations.schema_migrations (version text primary key, statements text[], name text);',
+    'insert into supabase_migrations.schema_migrations (version, statements, name)',
+    'values (' + lit(version) + ', array[' + lit('applied via management-api query fallback') + '], ' + lit(name) + ')',
+    'on conflict (version) do nothing;'
+  ].join('\n'));
 }
 
 /**
@@ -160,8 +182,9 @@ export function migrationFiles(repoRoot) {
  * back to the experimental query endpoint. Idempotent because every migration
  * uses IF NOT EXISTS / CREATE OR REPLACE / DROP POLICY IF EXISTS.
  */
-export async function applySchema(token, ref, repoRoot, { onStep } = {}) {
-  const files = migrationFiles(repoRoot);
+export async function applySchema(token, ref, repoRoot, { bootstrap = false, onStep } = {}) {
+  const files = migrationFiles(repoRoot, { bootstrap });
+  if (files.length === 0) throw new MgmtError('No migration files selected.', 0, null);
   const applied = [];
   let via = 'migrations';
   for (const m of files) {
@@ -171,8 +194,9 @@ export async function applySchema(token, ref, repoRoot, { onStep } = {}) {
     if (!r.restricted) throw new MgmtError(r.error || 'migration failed', r.status, null);
     via = 'query';
     await runQuery(token, ref, m.sql);
+    await recordVersion(token, ref, m.name.replace(/_.*$/, ''), m.name);
     applied.push(m.file);
-    if (onStep) onStep(m.file, 'ok (query fallback)');
+    if (onStep) onStep(m.file, 'ok (query fallback, version recorded)');
   }
-  return { applied, via, count: applied.length };
+  return { applied, via, count: applied.length, bootstrap };
 }

@@ -1,8 +1,10 @@
 /**
- * Database operations for a SITE's project.
- * Primary path: Supabase Management API (account token, HTTPS, no DB password).
- * Fallback:     psql with PG* env vars and SQL on stdin (needs a stored password).
- * Nothing secret is ever placed in argv.
+ * Database operations for a SITE's bound project.
+ * Primary: Supabase Management API (account token, HTTPS, no DB password).
+ * Fallback: psql — ONLY when the API endpoint is unavailable or transport fails.
+ *           NEVER on 401/403/429: those are credential/quota problems, not reasons
+ *           to silently escalate to a direct superuser connection.
+ * Secrets travel in the ENV; SQL travels on stdin. Nothing secret in argv.
  */
 import { spawnSync } from 'node:child_process';
 import { accessToken, pgParams, projectRecord, upsertProject, loadConfig } from './config-store.mjs';
@@ -11,6 +13,13 @@ import * as M from './supabase-mgmt.mjs';
 export function psqlPath() {
   const r = spawnSync('which', ['psql'], { encoding: 'utf8' });
   return r.status === 0 ? String(r.stdout).trim() : '';
+}
+
+/** Auth/quota errors must surface, not trigger a privileged fallback. */
+function fallbackAllowed(e) {
+  const s = Number(e && e.status || 0);
+  if (s === 401 || s === 403 || s === 429 || s === 402) return false;
+  return true;
 }
 
 function psqlQuery(ref, sql) {
@@ -28,12 +37,14 @@ function psqlQuery(ref, sql) {
   return { ok: true, via: 'psql', out: String(r.stdout || '').trim() };
 }
 
-/** Management API first; psql only if the API path is unavailable. */
 export async function query(ref, sql, { read_only = false } = {}) {
   try {
     const rows = await M.runQuery(accessToken(), ref, sql, { read_only });
     return { ok: true, via: 'management-api', rows };
   } catch (e) {
+    if (fallbackAllowed(e) === false) {
+      return { ok: false, via: 'management-api', error: 'API refused (' + (e.status || '?') + '): ' + e.message + ' — fix the token/scope; refusing to escalate to psql.' };
+    }
     if (psqlPath()) {
       const r = psqlQuery(ref, sql);
       if (r.ok) return r;
@@ -50,7 +61,11 @@ export async function health(ref) {
     const all = list.filter(Boolean);
     const okAll = all.length > 0 && all.every(x => x.status === 'ACTIVE_HEALTHY');
     const summary = all.map(x => (x.name || x.identifier || 'svc') + '=' + x.status).join(' ');
-    upsertProject(ref, { health: summary, health_at: Date.now(), status: okAll ? 'ACTIVE_HEALTHY' : (projectRecord(ref)?.status || 'UNKNOWN'), last_error: '' });
+    const cur = projectRecord(ref);
+    upsertProject(ref, {
+      health: summary, health_at: Date.now(),
+      status: okAll ? 'ACTIVE_HEALTHY' : ((cur && cur.status) || 'UNKNOWN'), last_error: ''
+    });
     return { ok: okAll, services: all, summary };
   } catch (e) {
     upsertProject(ref, { last_error: e.message });
@@ -58,9 +73,12 @@ export async function health(ref) {
   }
 }
 
-export async function applySchema(ref, repoRoot, { onStep } = {}) {
-  const r = await M.applySchema(accessToken(), ref, repoRoot, { onStep });
-  upsertProject(ref, { schema_applied: r.applied, schema_via: r.via, schema_at: Date.now(), last_error: '' });
+/** Bootstrap = Portrox schema only. Full history stays for the legacy sample project. */
+export async function applySchema(ref, repoRoot, { bootstrap = false, onStep } = {}) {
+  const r = await M.applySchema(accessToken(), ref, repoRoot, { bootstrap, onStep });
+  const prev = projectRecord(ref);
+  const merged = Array.from(new Set([...((prev && prev.schema_applied) || []), ...r.applied]));
+  upsertProject(ref, { schema_applied: merged, schema_via: r.via, schema_at: Date.now(), last_error: '' });
   return r;
 }
 
@@ -94,8 +112,7 @@ export async function markPublished(ref, id, published) {
 }
 
 export async function schemaStatus(ref) {
-  const r = await query(ref, "select coalesce(string_agg(version, ',' order by version), '') from supabase_migrations.schema_migrations;", { read_only: true });
-  return r;
+  return query(ref, "select coalesce(string_agg(version, ',' order by version), '') from supabase_migrations.schema_migrations;", { read_only: true });
 }
 
 export function boundRef(siteCfg) {

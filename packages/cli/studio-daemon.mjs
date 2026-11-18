@@ -212,17 +212,20 @@ async function createProject({ name, organization_slug, region_code, store_passw
     created_at: created.created_at || '', url: 'https://' + ref + '.supabase.co',
     db_password: store_password === true ? pass : '', db_password_stored: store_password === true
   });
-  const wait = await M.waitHealthy(t, ref, { timeoutMs: 240000, intervalMs: 6000 });
+  // Non-blocking: return immediately, let the UI poll /projects/:ref/health.
+  const wait = await M.waitHealthy(t, ref, { timeoutMs: 25000, intervalMs: 5000 });
   upsertProject(ref, { status: wait.status, health: wait.status, health_at: Date.now() });
   let key = null, schema = null;
   if (wait.ok) {
     key = await DB.ensureKey(ref);
-    schema = await DB.applySchema(ref, REPO);
+    schema = await DB.applySchema(ref, REPO, { bootstrap: true });
   }
   if (site_id && listSites().includes(site_id)) bindDatabase(site_id, { mode: 'dedicated', project_ref: ref });
   return {
     ref, status: wait.status, healthy: wait.ok, waited_seconds: Math.round(wait.waitedMs / 1000),
     key, schema, free_limit: FREE_ACTIVE_PROJECT_LIMIT, active_before: active,
+    at_free_cap: active >= FREE_ACTIVE_PROJECT_LIMIT,
+    next_action: wait.ok ? 'ready' : 'poll /api/supabase/projects/' + ref + '/health until ACTIVE_HEALTHY, then Fetch key + Apply schema',
     db_password_once: pass,
     password_stored: store_password === true,
     notice: 'This password CANNOT be changed via the API later. Save it now.'
@@ -325,7 +328,7 @@ const server = createServer(async (req, res) => {
         if (!projectRecord(ref)) return json(404, { error: 'unknown project ref' });
         try {
           if (pk[2] === 'key') return json(200, await DB.ensureKey(ref));
-          if (pk[2] === 'schema') return json(200, await DB.applySchema(ref, REPO));
+          if (pk[2] === 'schema') return json(200, await DB.applySchema(ref, REPO, { bootstrap: b.bootstrap === true }));
           if (pk[2] === 'health') return json(200, await DB.health(ref));
           return json(200, await M.securityAdvisor(accessToken(), ref));
         } catch (e) { upsertProject(ref, { last_error: redact(e.message) }); return json(400, { error: redact(e.message) }); }
@@ -346,7 +349,7 @@ const server = createServer(async (req, res) => {
           if (act === 'db') return json(200, bindDatabase(id, b));
           const ref = DB.boundRef(cfgOf(id));
           if (!ref) throw new Error('No Supabase project bound to this site.');
-          if (act === 'db/apply') return json(200, await DB.applySchema(ref, REPO));
+          if (act === 'db/apply') return json(200, await DB.applySchema(ref, REPO, { bootstrap: b.bootstrap === true }));
           if (act === 'db/health') return json(200, await DB.health(ref));
           return json(200, await DB.ensureKey(ref));
         } catch (e) { return json(400, { error: redact(e.message) }); }

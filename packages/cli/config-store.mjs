@@ -77,8 +77,8 @@ function normalize(c) {
   // Drop legacy scalars so nothing reads a stale global project again.
   for (const k of ['url', 'publishable_key', 'project_ref', 'db_password', 'db_host', 'db_port', 'db_user',
     'db_name', 'pooler_host', 'pooler_port', 'pooler_user', 'region', 'db_mode', 'db_ok', 'db_error',
-    'db_checked_at', 'server_version', 'email', 'access_token', 'refresh_token', 'expires_at', 'user_id']) {
-    if (k in s && k !== 'access_token') delete s[k];
+    'db_checked_at', 'server_version', 'email', 'refresh_token', 'expires_at', 'user_id']) {
+    delete s[k];
   }
   return out;
 }
@@ -129,8 +129,25 @@ export function maskedConfig() {
     last_error: p.last_error
   }));
   const active = projects.filter(p => /ACTIVE/.test(p.status || '')).length;
+  // Derived convenience fields from the DEFAULT project, so the dashboard,
+  // checklist and CLI never read undefined after the multi-project refactor.
+  const def = s.projects[s.default_project_ref] || null;
+  const derived = {
+    configured: Boolean(s.access_token),
+    project_ref: s.default_project_ref || '',
+    url: (def && def.url) || '',
+    has_key: Boolean(def && def.publishable_key),
+    key_tail: tail(def && def.publishable_key),
+    status: (def && def.status) || '',
+    health: (def && def.health) || '',
+    db_ok: /ACTIVE_HEALTHY/.test((def && def.health) || ''),
+    schema_complete: Boolean(def && (def.schema_applied || []).length >= 2),
+    schema_files: (def && (def.schema_applied || []).length) || 0,
+    db_password_stored: Boolean(def && def.db_password_stored)
+  };
   return {
     supabase: {
+      ...derived,
       account: {
         configured: Boolean(s.access_token),
         token_tail: tail(s.access_token),
