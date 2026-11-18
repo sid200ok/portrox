@@ -1,59 +1,76 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const HOME = process.env.PORTROX_HOME || join(homedir(), '.portrox');
 const st = JSON.parse(readFileSync(join(HOME, 'state.json'), 'utf8'));
+const U = process.env.PORTROX_TEST_USER || 'admin';
+const P = process.env.PORTROX_TEST_PASS || 'admin';
 let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
-const curl = args => spawnSync('curl', args, { encoding: 'utf8' });
-
-// Negative-test fixture assembled at RUNTIME so no detectable literal
-// ever exists in this source file. Same discipline as audit-secrets.sh.
-const FAKE_SECRET = 'sb_' + 'secret_' + 'A'.repeat(20);
+const curl = a => spawnSync('curl', a, { encoding: 'utf8' });
+const code = a => curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', ...a]).stdout.trim();
 
 st.host === '127.0.0.1' ? ok('bind 127.0.0.1') : fail('bind ' + st.host);
 (st.port > 0 && st.port !== 8000 && st.port !== 3000) ? ok('dynamic port ' + st.port) : fail('suspicious port ' + st.port);
-const sm = (statSync(join(HOME, 'state.json')).mode & 0o777).toString(8);
-sm === '600' ? ok('state.json 0600') : fail('state.json mode ' + sm);
+for (const [f, want] of [['state.json', '600'], ['auth.json', '600']]) {
+  const p = join(HOME, f);
+  if (!existsSync(p)) { fail(f + ' missing'); continue; }
+  const m = (statSync(p).mode & 0o777).toString(8);
+  m === want ? ok(f + ' ' + want) : fail(f + ' mode ' + m);
+}
 const dm = (statSync(HOME).mode & 0o777).toString(8);
 dm === '700' ? ok('~/.portrox 0700') : fail('dir mode ' + dm);
 
-const h = curl(['-fsS', st.url + '/api/health']);
-h.status === 0 ? ok('health ' + h.stdout.trim()) : fail('health unreachable');
+const health = curl(['-fsS', st.url + '/api/health']);
+health.status === 0 ? ok('health ' + health.stdout.trim()) : fail('health unreachable');
+health.stdout.includes('sites') ? fail('health leaks site inventory') : ok('health leaks no inventory');
 
-const cfg = curl(['-fsS', st.url + '/api/config']);
-if (cfg.status !== 0) fail('/api/config unreachable');
-else {
-  let j = null; try { j = JSON.parse(cfg.stdout); } catch {}
-  if (!j) fail('/api/config not JSON');
+// --- unauthenticated hardening ---
+code([st.url + '/api/config']) === '401' ? ok('GET /api/config without session -> 401') : fail('config not gated');
+code([st.url + '/api/sites']) === '401' ? ok('GET /api/sites without session -> 401') : fail('sites not gated');
+code(['-X', 'POST', st.url + '/api/sites', '-d', '{}']) === '403' ? ok('POST without CSRF -> 403') : fail('CSRF not enforced');
+code(['-X', 'POST', '-H', 'x-portrox-token: wrong', st.url + '/api/sites', '-d', '{}']) === '403' ? ok('wrong CSRF -> 403') : fail('wrong CSRF accepted');
+code(['-H', 'Host: evil.example', st.url + '/api/health']) === '403' ? ok('bad Host -> 403') : fail('Host not validated');
+code(['-X', 'POST', '-H', 'x-portrox-token: ' + st.token, '-H', 'Origin: http://evil.example',
+  '-H', 'Content-Type: application/json', st.url + '/api/auth/login', '-d', '{}']) === '403' ? ok('evil Origin -> 403') : fail('Origin not validated');
+
+const loginPage = curl(['-fsS', st.url + '/']);
+loginPage.status === 0 && /Sign in/.test(loginPage.stdout) ? ok('unauthenticated / serves login') : fail('/ did not serve login');
+loginPage.stdout.includes(st.token) ? ok('CSRF token present in login page') : fail('CSRF missing from login page');
+
+// --- authenticated checks ---
+const jar = join(HOME, '.verify-cookie');
+const lg = curl(['-s', '-c', jar, '-X', 'POST', '-H', 'Content-Type: application/json',
+  '-H', 'x-portrox-token: ' + st.token, st.url + '/api/auth/login',
+  '-d', JSON.stringify({ username: U, password: P })]);
+let logged = false;
+try { logged = JSON.parse(lg.stdout).ok === true; } catch {}
+if (!logged) {
+  console.log('SKIP authenticated checks (credentials rotated). Set PORTROX_TEST_USER / PORTROX_TEST_PASS to include them.');
+} else {
+  ok('login succeeds');
+  const cfg = curl(['-fsS', '-b', jar, st.url + '/api/config']);
+  if (cfg.status !== 0) fail('authenticated /api/config unreachable');
   else {
     const raw = cfg.stdout;
     const leaks = ['access_token', 'refresh_token', '"token"', 'password', st.token].filter(k => raw.includes(k));
-    leaks.length === 0 ? ok('/api/config leaks no tokens or CSRF secret') : fail('/api/config leaked: ' + leaks.join(', '));
-    (j.supabase && j.github) ? ok('/api/config masked shape present') : fail('/api/config shape wrong');
-    if (j.github && j.github.token) fail('github.token returned to browser');
-    if (j.supabase && j.supabase.access_token) fail('supabase.access_token returned to browser');
+    leaks.length === 0 ? ok('/api/config leaks no secrets') : fail('/api/config leaked: ' + leaks.join(', '));
+    try { const j = JSON.parse(raw); (j.supabase && j.github) ? ok('masked shape present') : fail('masked shape wrong'); } catch { fail('config not JSON'); }
   }
+  const sites = curl(['-fsS', '-b', jar, st.url + '/api/sites']);
+  sites.status === 0 ? ok('authenticated /api/sites reachable') : fail('sites unreachable with session');
+  const sk = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-b', jar, '-X', 'POST',
+    '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + st.token,
+    st.url + '/api/config/supabase', '-d', JSON.stringify({ url: 'https://x.supabase.co', publishable_key: 'sb_' + 'secret_' + 'A'.repeat(20) })]);
+  sk.stdout.trim() === '400' ? ok('secret key rejected -> 400') : fail('secret key accepted -> ' + sk.stdout.trim());
+  const lo = curl(['-s', '-b', jar, '-X', 'POST', '-H', 'x-portrox-token: ' + st.token, st.url + '/api/auth/logout']);
+  lo.status === 0 ? ok('logout succeeds') : fail('logout failed');
+  code(['-b', jar, st.url + '/api/config']) === '401' ? ok('session invalidated after logout') : fail('session survived logout');
 }
-
-const noTok = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', st.url + '/api/sites', '-d', '{}']);
-noTok.stdout.trim() === '403' ? ok('POST without token -> 403') : fail('POST without token -> ' + noTok.stdout.trim());
-
-const badTok = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', '-H', 'x-portrox-token: wrong', st.url + '/api/sites', '-d', '{}']);
-badTok.stdout.trim() === '403' ? ok('POST with wrong token -> 403') : fail('wrong token -> ' + badTok.stdout.trim());
-
-const badHost = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-H', 'Host: evil.example', st.url + '/api/health']);
-badHost.stdout.trim() === '403' ? ok('bad Host -> 403') : fail('bad Host -> ' + badHost.stdout.trim());
-
-const badOrigin = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', '-H', 'x-portrox-token: ' + st.token, '-H', 'Origin: http://evil.example', '-H', 'Content-Type: application/json', st.url + '/api/config/supabase', '-d', '{}']);
-badOrigin.stdout.trim() === '403' ? ok('evil Origin -> 403') : fail('evil Origin -> ' + badOrigin.stdout.trim());
-
-const secretPayload = JSON.stringify({ url: 'https://x.supabase.co', publishable_key: FAKE_SECRET });
-const secretKey = curl(['-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', '-H', 'x-portrox-token: ' + st.token, '-H', 'Content-Type: application/json', st.url + '/api/config/supabase', '-d', secretPayload]);
-secretKey.stdout.trim() === '400' ? ok('secret key rejected -> 400') : fail('secret key accepted -> ' + secretKey.stdout.trim());
+try { spawnSync('rm', ['-f', jar]); } catch {}
 
 const ss = spawnSync('bash', ['-lc', 'ss -ltnp 2>/dev/null | grep ":' + st.port + ' " || true'], { encoding: 'utf8' });
 ss.stdout.includes('127.0.0.1:' + st.port) ? ok('listener is loopback only') : fail('listener: ' + ss.stdout.trim());

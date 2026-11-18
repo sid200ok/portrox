@@ -6,6 +6,7 @@ const need = [
   'package.json','.gitignore','.env.example','README.md','LICENSE','.gitleaks.toml','.pre-commit-config.yaml',
   '.github/workflows/security.yml','.github/workflows/publish-site.yml',
   'packages/cli/portrox.mjs','packages/cli/studio-daemon.mjs','packages/cli/config-store.mjs',
+  'packages/cli/auth-store.mjs','packages/cli/studio-ui.mjs',
   'packages/core/render.mjs','packages/core/portrox.css','packages/core/forms.js',
   'packages/core/system-pages/about-website.md',
   'packages/database/migrations/0001_init.sql',
@@ -54,6 +55,20 @@ console.log('git commits: ' + (sh('git', ['rev-list', '--count', '--all']).stdou
 console.log('git remote: ' + (sh('git', ['remote', 'get-url', 'origin']).stdout || '(none)').trim());
 console.log('portrox on PATH: ' + (sh('which', ['portrox']).stdout.trim() || 'NO'));
 console.log('node: ' + process.version + '  gitleaks: ' + (sh('which', ['gitleaks']).stdout.trim() || 'NO'));
+
+const authPath = join(process.env.PORTROX_HOME || join(process.env.HOME, '.portrox'), 'auth.json');
+if (existsSync(authPath)) {
+  const am = (statSync(authPath).mode & 0o777).toString(8);
+  if (am !== '600') bad++;
+  console.log('auth.json mode: ' + am + (am === '600' ? '  OK' : '  FAIL'));
+  try {
+    const a = JSON.parse(readFileSync(authPath, 'utf8'));
+    console.log('Studio auth: user=' + a.user.username + ' rotated=' + Boolean(a.user.rotated)
+      + ' recovery=' + (a.recovery.questions.length >= a.recovery.required || Boolean(a.recovery.key)));
+  } catch { bad++; console.log('FAIL auth.json unparsable'); }
+} else {
+  console.log('Studio auth: not initialised (starts on first daemon run)');
+}
 
 const cfgPath = join(process.env.PORTROX_HOME || join(process.env.HOME, '.portrox'), 'config.json');
 if (existsSync(cfgPath)) {
