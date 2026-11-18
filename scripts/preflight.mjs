@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 const need = [
   'package.json','.gitignore','.env.example','README.md','LICENSE','.gitleaks.toml','.pre-commit-config.yaml',
+  '.github/workflows/security.yml','.github/workflows/publish-site.yml',
   'packages/cli/portrox.mjs','packages/cli/studio-daemon.mjs','packages/cli/config-store.mjs',
   'packages/core/render.mjs','packages/core/portrox.css','packages/core/forms.js',
   'packages/core/system-pages/about-website.md',
@@ -11,6 +12,7 @@ const need = [
   'supabase/migrations/20261117220000_portrox_init.sql',
   'scripts/audit-secrets.sh','scripts/gitleaks-staged.sh','scripts/triage.mjs',
   'scripts/verify-render.mjs','scripts/verify-rpc.mjs','scripts/verify-daemon.mjs',
+  'scripts/verify-live.mjs','scripts/verify-all.sh',
   'sites/sid200ok.github.io/site.json',
   'sites/sid200ok.github.io/content/intro.md',
   'sites/sid200ok.github.io/data/profile.json',
@@ -23,7 +25,6 @@ for (const p of need) {
   console.log((ok ? 'OK   ' : 'MISS ') + p + (ok ? '  ' + statSync(p).size + 'B' : ''));
 }
 
-// Forbidden: any code that reads credentials from a .env file.
 const forbidden = [];
 const walk = d => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -40,7 +41,6 @@ walk('.');
 if (forbidden.length) { bad++; console.log('FAIL .env readers present: ' + forbidden.join(', ')); }
 else console.log('OK   no .env credential readers');
 
-// Schema mirror must be byte-identical (prevents silent drift).
 const a = 'packages/database/migrations/0001_init.sql';
 const b = 'supabase/migrations/20261117220000_portrox_init.sql';
 if (existsSync(a) && existsSync(b)) {
@@ -63,9 +63,7 @@ if (existsSync(cfgPath)) {
   let c = {};
   try { c = JSON.parse(readFileSync(cfgPath, 'utf8')); } catch { bad++; console.log('FAIL config.json unparsable'); }
   const s = c.supabase || {}, g = c.github || {};
-  console.log('UI config: supabase=' + (s.url ? 'set' : 'EMPTY')
-    + ' signed_in=' + Boolean(s.user_id)
-    + ' github=' + (g.login || 'EMPTY'));
+  console.log('UI config: supabase=' + (s.url ? 'set' : 'EMPTY') + ' signed_in=' + Boolean(s.user_id) + ' github=' + (g.login || 'EMPTY'));
   if (s.publishable_key && /^sb_(secret|service)_/.test(s.publishable_key)) { bad++; console.log('FAIL secret key in UI store'); }
 } else {
   console.log('UI config: NOT CREATED — open the Studio and complete Setup');

@@ -123,7 +123,7 @@ export function signOut() {
 
 export async function ensureToken() {
   const c = loadConfig();
-  if (!c.supabase.refresh_token) throw new Error('Not signed in to Supabase. Use Setup → Sign in.');
+  if (!c.supabase.refresh_token) throw new Error('Not signed in to Supabase. Use Setup -> Sign in.');
   const now = Math.floor(Date.now() / 1000);
   if (c.supabase.access_token && c.supabase.expires_at - 60 > now) return c.supabase.access_token;
   const j = await tokenRequest('refresh_token', { refresh_token: c.supabase.refresh_token });
@@ -189,7 +189,11 @@ export async function gh(path, opts = {}) {
   return { status: r.status, ok: r.ok, json, text };
 }
 
-/** Git credential helper reads the PAT from ENV only — never argv, never .git/config. */
+/**
+ * Git credential helper reads the PAT from ENV only — never argv, never .git/config.
+ * credential.helper is MULTI-VALUED: an empty value first RESETS the list so a
+ * pre-existing helper (store/manager/gh) cannot answer before ours.
+ */
 export function gitEnv() {
   const c = loadConfig();
   if (!c.github.token) throw new Error('Configure GitHub token in Setup first.');
@@ -197,9 +201,12 @@ export function gitEnv() {
     ...process.env,
     GH_TOKEN: c.github.token,
     GIT_TERMINAL_PROMPT: '0',
-    GIT_CONFIG_COUNT: '1',
+    GIT_ASKPASS: '/bin/true',
+    GIT_CONFIG_COUNT: '2',
     GIT_CONFIG_KEY_0: 'credential.helper',
-    GIT_CONFIG_VALUE_0: '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: 'credential.helper',
+    GIT_CONFIG_VALUE_1: '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
   };
 }
 

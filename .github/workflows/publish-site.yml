@@ -1,0 +1,38 @@
+name: publish-site
+# CI builds and verifies the artifact. Actual publishing to a *different* repo
+# requires a PAT, which lives only in the local Studio store by design.
+# Use the Studio's Publish button to deploy; this workflow is the CI proof.
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Site folder under sites/ (e.g. sid200ok.github.io)'
+        required: true
+        type: string
+        default: 'sid200ok.github.io'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - name: Render
+        run: node packages/cli/portrox.mjs build "${{ inputs.site }}"
+      - name: Verify render
+        run: node scripts/verify-render.mjs
+      - name: Refuse secrets in artifact
+        run: |
+          set -euo pipefail
+          if grep -rEq 'sb_(secret|service)_' "dist/${{ inputs.site }}"; then
+            echo "::error::secret key found in rendered output"; exit 1
+          fi
+          echo "output clean"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ inputs.site }}
+          path: dist/${{ inputs.site }}
+          retention-days: 7

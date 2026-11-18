@@ -1,0 +1,56 @@
+name: security
+on:
+  push: { branches: [main] }
+  pull_request:
+  schedule: [{ cron: '0 6 * * 1' }]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - name: Install gitleaks (native, pinned to latest release)
+        run: |
+          set -euo pipefail
+          TAG="$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | sed -n 's/.*"tag_name": "\(v[0-9.]*\)".*/\1/p' | head -n1)"
+          [ -n "$TAG" ] || { echo "::error::cannot resolve gitleaks version"; exit 1; }
+          V="${TAG#v}"
+          curl -fsSL -o /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/${TAG}/gitleaks_${V}_linux_x64.tar.gz"
+          tar -xzf /tmp/gl.tgz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Positive control (runtime-assembled probe)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/probe
+          P1='postgres://probe_user'; P2=':K7qR2mX9vT4wZ8pL'; P3='@db.example.invalid:5432/postgres'
+          printf 'DATABASE_URL=%s%s%s\n' "$P1" "$P2" "$P3" > /tmp/probe/planted.txt
+          set +e
+          gitleaks dir /tmp/probe --config "$PWD/.gitleaks.toml" --redact --no-banner --exit-code 1 >/dev/null 2>&1
+          rc=$?; set -e
+          if [ "$rc" -eq 1 ]; then echo "probe fired"
+          elif [ "$rc" -eq 0 ]; then echo "::error::probe silent - allowlist too broad"; exit 1
+          else echo "::error::probe harness failure ($rc)"; exit 1; fi
+      - name: Scan working tree
+        run: gitleaks dir "$PWD" --config "$PWD/.gitleaks.toml" --redact --no-banner -v --exit-code 1
+      - name: Scan full git history
+        run: gitleaks git "$PWD" --config "$PWD/.gitleaks.toml" --log-opts=--all --redact --no-banner -v --exit-code 1
+      - name: Render + verify artifact (no deps required)
+        run: |
+          set -euo pipefail
+          node packages/cli/portrox.mjs build --all
+          node scripts/verify-render.mjs
+      - name: Assert no secret reached the artifact
+        run: |
+          set -euo pipefail
+          if grep -rEq 'sb_(secret|service)_' dist/; then echo "::error::secret in dist/"; exit 1; fi
+          echo "artifact clean"

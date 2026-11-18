@@ -2,7 +2,6 @@ import { readFileSync, existsSync } from 'node:fs';
 const ID = 'sid200ok.github.io';
 const POSITIVE = process.argv.includes('--positive');
 
-// Prefer what is actually deployed, then fall back to the site config.
 let url = '', key = '';
 const deployed = 'dist/' + ID + '/assets/site-config.js';
 if (existsSync(deployed)) {
@@ -14,10 +13,17 @@ if (!url || !key) {
   url = (cfg.supabase && cfg.supabase.url) || '';
   key = (cfg.supabase && cfg.supabase.publishable_key) || '';
 }
+
+// Honest semantics: SKIP => exit 0. FAIL => exit 1. Never both.
 if (!url || !key) {
-  console.log('SKIP  Supabase not configured.');
-  console.log('      Open the Studio (portrox status -> URL), complete Setup, then Build + Publish.');
-  process.exit(POSITIVE ? 1 : 0);
+  if (POSITIVE) {
+    console.log('FAIL precondition: Supabase not configured in the Studio.');
+    console.log('     ACTION: portrox status -> open URL -> Setup (Supabase + sign-in + GitHub PAT)');
+    console.log('             then Register -> Publish -> portrox build --all -> re-run this.');
+    process.exit(1);
+  }
+  console.log('SKIP Supabase not configured (no verdict). Use --positive to require it.');
+  process.exit(0);
 }
 
 const H = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
@@ -30,7 +36,6 @@ let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 
-// Determine publication state from the DB, not from local flags.
 const pubRes = await fetch(url + '/rest/v1/sites?id=eq.' + encodeURIComponent(ID) + '&select=id,is_published', { headers: H });
 let rows = []; try { rows = await pubRes.json(); } catch {}
 const published = Array.isArray(rows) && rows.length > 0 && rows[0].is_published === true;
@@ -38,7 +43,7 @@ console.log('site published in DB: ' + published);
 
 if (POSITIVE && published === false) {
   fail('--positive requested but the site is not published.');
-  console.log('      In the Studio: Setup (Supabase sign-in + GitHub PAT) -> Register -> Publish, then re-run.');
+  console.log('     ACTION: Studio -> Register -> Publish, then re-run.');
   console.log('RPC BAD=' + bad);
   process.exit(1);
 }
