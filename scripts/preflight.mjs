@@ -63,8 +63,10 @@ if (existsSync(authPath)) {
   console.log('auth.json mode: ' + am + (am === '600' ? '  OK' : '  FAIL'));
   try {
     const a = JSON.parse(readFileSync(authPath, 'utf8'));
-    console.log('Studio auth: user=' + a.user.username + ' rotated=' + Boolean(a.user.rotated)
+    const weak = Boolean(a.user.passwordRotated) === false;
+    console.log('Studio auth: user=' + a.user.username + ' passwordRotated=' + Boolean(a.user.passwordRotated)
       + ' recovery=' + (a.recovery.questions.length >= a.recovery.required || Boolean(a.recovery.key)));
+    if (weak) console.log('NOTE Studio password may still be the default — rotate it in Settings -> Security');
   } catch { bad++; console.log('FAIL auth.json unparsable'); }
 } else {
   console.log('Studio auth: not initialised (starts on first daemon run)');

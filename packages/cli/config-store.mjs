@@ -73,12 +73,17 @@ export function assertPublicKey(key) {
   throw new Error('Key must be sb_publishable_… / sb_anon_… or a legacy anon JWT.');
 }
 
+/** Blank key means "keep the stored key" so the URL can be edited alone. */
 export function setSupabase({ url, publishable_key }) {
+  const c = loadConfig();
   const u = String(url || '').trim().replace(/\/$/, '');
-  const k = String(publishable_key || '').trim();
+  let k = String(publishable_key || '').trim();
+  if (!k) {
+    if (!c.supabase.publishable_key) throw new Error('Publishable key is required on first setup.');
+    k = c.supabase.publishable_key;
+  }
   if (/^https:\/\/[A-Za-z0-9.-]+\.supabase\.(co|in)$/.test(u) === false) throw new Error('Invalid Supabase URL (https://<ref>.supabase.co).');
   assertPublicKey(k);
-  const c = loadConfig();
   const changed = c.supabase.url !== u || c.supabase.publishable_key !== k;
   c.supabase.url = u; c.supabase.publishable_key = k;
   if (changed) { c.supabase.access_token = ''; c.supabase.refresh_token = ''; c.supabase.expires_at = 0; c.supabase.user_id = ''; c.supabase.email = ''; }
@@ -111,7 +116,7 @@ export async function signIn({ email, password }) {
   c.supabase.expires_at = Math.floor(Date.now() / 1000) + Number(j.expires_in || 3600);
   c.supabase.user_id = (j.user && j.user.id) || '';
   saveConfig(c);
-  return maskedConfig();   // password never persisted
+  return maskedConfig();
 }
 
 export function signOut() {
@@ -155,14 +160,17 @@ export async function sb(path, opts = {}) {
 }
 
 export async function setGithub({ token }) {
-  const t = String(token || '').trim();
-  if (!t) throw new Error('GitHub token is required.');
+  const c = loadConfig();
+  let t = String(token || '').trim();
+  if (!t) {
+    if (!c.github.token) throw new Error('GitHub token is required on first setup.');
+    t = c.github.token;
+  }
   const r = await fetch(GH_API + '/user', {
     headers: { Authorization: 'Bearer ' + t, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': GH_VER, 'User-Agent': 'portrox' }
   });
   if (r.ok === false) throw new Error('GitHub token rejected (HTTP ' + r.status + '). Needs repo + workflow scope.');
   const j = await r.json();
-  const c = loadConfig();
   c.github.token = t;
   c.github.login = j.login || '';
   c.github.scopes = r.headers.get('x-oauth-scopes') || '';

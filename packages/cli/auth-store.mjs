@@ -1,10 +1,12 @@
 /**
  * Portrox local authentication.
- * Credentials + recovery live in ~/.portrox/auth.json (0600) in a 0700 dir.
- * Passwords and recovery answers are scrypt-hashed with per-item salts.
- * Sessions are in-memory only: restarting the daemon signs everyone out.
+ * ~/.portrox/auth.json (0600) in a 0700 dir. scrypt hashes, per-item salts.
+ * Sessions and reset tokens are in-memory and swept on every call.
  *
- * Emergency reset (local shell access required):
+ * IMPORTANT: rotation status is derived from the PASSWORD, never the username.
+ * Changing only the username must NOT clear the default-password warning.
+ *
+ * Emergency reset (local shell required):
  *   node packages/cli/auth-store.mjs reset
  */
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSync, unlinkSync } from 'node:fs';
@@ -22,7 +24,9 @@ const FAIL_WINDOW = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
 const RECOVER_MAX = 3;
 const RECOVER_WINDOW = 60 * 60 * 1000;
+const RESET_TTL = 10 * 60 * 1000;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+const DEFAULT_PASSWORD = 'admin';
 
 const sessions = new Map();
 const resetTokens = new Map();
@@ -62,11 +66,25 @@ const b32 = n => {
   for (const b of randomBytes(n)) out += A[b % A.length];
   return out;
 };
+const validUsername = u => /^[a-zA-Z0-9._-]{3,32}$/.test(u);
+
+/** Sweep expired in-memory state. Called on every auth operation. */
+function sweep() {
+  const now = Date.now();
+  for (const [k, v] of sessions) {
+    if (now - v.created > ABS_TTL || now - v.seen > IDLE_TTL) sessions.delete(k);
+  }
+  for (const [k, v] of resetTokens) {
+    if (now > v.expires) resetTokens.delete(k);
+  }
+  fails = fails.filter(t => now - t < FAIL_WINDOW);
+  recoverFails = recoverFails.filter(t => now - t < RECOVER_WINDOW);
+}
 
 function blank() {
   return {
-    version: 1,
-    user: { username: 'admin', ...makeSecret('admin'), createdAt: Date.now(), rotated: false },
+    version: 2,
+    user: { username: 'admin', ...makeSecret(DEFAULT_PASSWORD), createdAt: Date.now(), passwordRotated: false },
     prompt: { dismissed: false },
     recovery: { required: 2, questions: [], key: null },
     updatedAt: Date.now()
@@ -81,6 +99,13 @@ export function load() {
     if (!c.user || !c.user.hash) throw new Error('corrupt');
     c.prompt = c.prompt || { dismissed: false };
     c.recovery = c.recovery || { required: 2, questions: [], key: null };
+    // v1 -> v2 migration: old `rotated` could be set by a username-only edit.
+    // Never trust it. Derive from the actual secret instead.
+    if (typeof c.user.passwordRotated !== 'boolean') {
+      c.user.passwordRotated = !verify(DEFAULT_PASSWORD, c.user);
+    }
+    delete c.user.rotated;
+    c.version = 2;
     return c;
   } catch {
     const b = blank(); save(b); return b;
@@ -95,18 +120,25 @@ export function save(c) {
   try { chmodSync(FILE, 0o600); } catch {}
 }
 
+/** True when the password is still the shipped default — regardless of username. */
+export function weakPassword(c) {
+  return verify(DEFAULT_PASSWORD, (c || load()).user);
+}
 export function isDefaultCredentials() {
   const c = load();
-  return c.user.username === 'admin' && verify('admin', c.user);
+  return c.user.username === 'admin' && weakPassword(c);
 }
 
 export function publicState() {
   const c = load();
+  const weak = weakPassword(c);
   return {
     username: c.user.username,
-    rotated: Boolean(c.user.rotated),
+    weakPassword: weak,
+    passwordRotated: Boolean(c.user.passwordRotated) && !weak,
+    rotated: Boolean(c.user.passwordRotated) && !weak,
+    usingDefaults: c.user.username === 'admin' && weak,
     promptDismissed: Boolean(c.prompt.dismissed),
-    usingDefaults: isDefaultCredentials(),
     recoveryConfigured: c.recovery.questions.length >= c.recovery.required,
     recoveryQuestions: c.recovery.questions.map(q => ({ id: q.id, label: q.label })),
     recoveryRequired: c.recovery.required,
@@ -117,15 +149,12 @@ export function publicState() {
 
 function lockedFor() {
   const now = Date.now();
-  fails = fails.filter(t => now - t < FAIL_WINDOW);
-  if (fails.length >= MAX_FAIL) {
-    const oldest = fails[0];
-    return Math.max(0, LOCK_MS - (now - oldest));
-  }
+  if (fails.length >= MAX_FAIL) return Math.max(0, LOCK_MS - (now - fails[0]));
   return 0;
 }
 
 export function login({ username, password }) {
+  sweep();
   const wait = lockedFor();
   if (wait > 0) throw new Error('Too many attempts. Try again in ' + Math.ceil(wait / 60000) + ' min.');
   const c = load();
@@ -143,33 +172,64 @@ export function login({ username, password }) {
 }
 
 export function session(sid) {
+  sweep();
   if (!sid) return null;
   const s = sessions.get(sid);
   if (!s) return null;
-  const now = Date.now();
-  if (now - s.created > ABS_TTL || now - s.seen > IDLE_TTL) { sessions.delete(sid); return null; }
-  s.seen = now;
+  s.seen = Date.now();
   return s;
 }
 export function logout(sid) { if (sid) sessions.delete(sid); }
 export function logoutAll() { sessions.clear(); }
 
-export function changeCredentials({ currentPassword, username, password, dismissPrompt }) {
+/** Validate recovery answers without mutating anything. */
+function buildRecovery(answers, required) {
+  const list = Array.isArray(answers) ? answers.filter(a => a && a.id && String(a.value || '').trim()) : [];
+  if (list.length === 0) return null;
+  const req = Math.max(1, Math.min(list.length, Number(required) || 2));
+  if (list.length < req) throw new Error('Provide at least ' + req + ' recovery answers.');
+  const seen = new Set();
+  const questions = list.map(a => {
+    const meta = QUESTION_BANK.find(q => q.id === a.id);
+    if (!meta) throw new Error('Unknown question id: ' + a.id);
+    if (seen.has(a.id)) throw new Error('Duplicate question: ' + a.id);
+    seen.add(a.id);
+    if (norm(a.value).length < 2) throw new Error('Answer too short for: ' + meta.label);
+    return { id: a.id, label: meta.label, ...makeSecret(norm(a.value)) };
+  });
+  return { required: req, questions };
+}
+
+/**
+ * ATOMIC: credentials + optional recovery in one write, then invalidate sessions.
+ * Everything is validated before any mutation, so a bad answer cannot half-apply.
+ */
+export function changeCredentials({ currentPassword, username, password, dismissPrompt, recoveryAnswers, recoveryRequired }) {
+  sweep();
   const c = load();
   if (!verify(String(currentPassword || ''), c.user)) throw new Error('Current password is incorrect.');
+
   const u = String(username || '').trim();
-  if (u && !/^[a-zA-Z0-9._-]{3,32}$/.test(u)) throw new Error('Username must be 3-32 chars: letters, digits, dot, underscore, hyphen.');
-  if (password) {
-    if (String(password).length < 8) throw new Error('New password must be at least 8 characters.');
-    if (String(password) === 'admin') throw new Error('Choose a password other than the default.');
-    c.user = { ...c.user, ...makeSecret(String(password)), rotated: true };
+  const p = String(password || '');
+  if (u && !validUsername(u)) throw new Error('Username must be 3-32 chars: letters, digits, dot, underscore, hyphen.');
+  if (p) {
+    if (p.length < 8) throw new Error('New password must be at least 8 characters.');
+    if (p === DEFAULT_PASSWORD) throw new Error('Choose a password other than the default.');
   }
+  // Validate recovery BEFORE touching the password.
+  const rec = buildRecovery(recoveryAnswers, recoveryRequired);
+
+  if (p) { c.user = { ...c.user, ...makeSecret(p), passwordRotated: true }; }
   if (u) c.user.username = u;
+  if (rec) { c.recovery = { ...c.recovery, required: rec.required, questions: rec.questions }; }
   if (dismissPrompt === true) c.prompt.dismissed = true;
-  if (c.user.username !== 'admin' || c.user.rotated) c.user.rotated = true;
+
+  // Never infer rotation from the username.
+  c.user.passwordRotated = Boolean(c.user.passwordRotated) && !weakPassword(c);
+
   save(c);
   logoutAll();
-  return publicState();
+  return { ...publicState(), recoverySaved: Boolean(rec) };
 }
 
 export function dismissPrompt() {
@@ -180,26 +240,18 @@ export function dismissPrompt() {
 }
 
 export function setupRecovery({ currentPassword, answers, required }) {
+  sweep();
   const c = load();
   if (!verify(String(currentPassword || ''), c.user)) throw new Error('Current password is incorrect.');
-  const list = Array.isArray(answers) ? answers.filter(a => a && a.id && String(a.value || '').trim()) : [];
-  const req = Math.max(1, Math.min(list.length || 1, Number(required) || 2));
-  if (list.length < req) throw new Error('Provide at least ' + req + ' answers.');
-  const seen = new Set();
-  c.recovery.questions = list.map(a => {
-    const meta = QUESTION_BANK.find(q => q.id === a.id);
-    if (!meta) throw new Error('Unknown question id: ' + a.id);
-    if (seen.has(a.id)) throw new Error('Duplicate question: ' + a.id);
-    seen.add(a.id);
-    if (norm(a.value).length < 2) throw new Error('Answer too short for: ' + meta.label);
-    return { id: a.id, label: meta.label, ...makeSecret(norm(a.value)) };
-  });
-  c.recovery.required = req;
+  const rec = buildRecovery(answers, required);
+  if (!rec) throw new Error('Provide at least one answer.');
+  c.recovery = { ...c.recovery, required: rec.required, questions: rec.questions };
   save(c);
   return publicState();
 }
 
 export function issueRecoveryKey({ currentPassword }) {
+  sweep();
   const c = load();
   if (!verify(String(currentPassword || ''), c.user)) throw new Error('Current password is incorrect.');
   const key = b32(24).match(/.{1,4}/g).join('-');
@@ -209,8 +261,8 @@ export function issueRecoveryKey({ currentPassword }) {
 }
 
 export function recover({ answers, key }) {
+  sweep();
   const now = Date.now();
-  recoverFails = recoverFails.filter(t => now - t < RECOVER_WINDOW);
   if (recoverFails.length >= RECOVER_MAX) throw new Error('Too many recovery attempts. Try again in an hour.');
   const c = load();
   let pass = false;
@@ -231,21 +283,22 @@ export function recover({ answers, key }) {
   if (!pass) { recoverFails.push(now); throw new Error('Recovery failed. Answers did not match.'); }
   recoverFails = [];
   const token = randomBytes(24).toString('hex');
-  resetTokens.set(token, { expires: now + 10 * 60 * 1000 });
-  return { resetToken: token, expiresIn: 600 };
+  resetTokens.set(token, { expires: now + RESET_TTL });
+  return { resetToken: token, expiresIn: RESET_TTL / 1000 };
 }
 
 export function resetWithToken({ resetToken, username, password }) {
+  sweep();
   const rec = resetTokens.get(String(resetToken || ''));
   if (!rec || Date.now() > rec.expires) throw new Error('Reset token invalid or expired. Start recovery again.');
   resetTokens.delete(String(resetToken));
   const u = String(username || '').trim();
   const p = String(password || '');
-  if (!/^[a-zA-Z0-9._-]{3,32}$/.test(u)) throw new Error('Username must be 3-32 chars: letters, digits, dot, underscore, hyphen.');
+  if (!validUsername(u)) throw new Error('Username must be 3-32 chars: letters, digits, dot, underscore, hyphen.');
   if (p.length < 8) throw new Error('Password must be at least 8 characters.');
-  if (p === 'admin') throw new Error('Choose a password other than the default.');
+  if (p === DEFAULT_PASSWORD) throw new Error('Choose a password other than the default.');
   const c = load();
-  c.user = { username: u, ...makeSecret(p), createdAt: c.user.createdAt, rotated: true };
+  c.user = { username: u, ...makeSecret(p), createdAt: c.user.createdAt, passwordRotated: true };
   c.prompt.dismissed = true;
   save(c);
   logoutAll();
@@ -261,13 +314,14 @@ function cliReset() {
   c.recovery.key = makeSecret(norm(key));
   save(c);
   logoutAll();
+  resetTokens.clear();
   fails = []; recoverFails = [];
   console.log('Portrox auth reset.');
   console.log('  username : admin');
   console.log('  password : admin');
   console.log('  recovery key (save this now, shown once):');
   console.log('    ' + key);
-  console.log('Sign in and rotate immediately.');
+  console.log('Sign in and rotate the PASSWORD immediately.');
 }
 
 if (process.argv[1] && process.argv[1].endsWith('auth-store.mjs')) {
