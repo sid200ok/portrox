@@ -1,0 +1,90 @@
+[
+  {
+    "role": "VoIP AI Integration Engineer",
+    "org": "Basal Analytics Pvt. Ltd. (desible.ai)",
+    "period": "Dec 2025 · 30-day delivery",
+    "location": "Remote",
+    "summary": "Configured Asterisk PBX with the AudioSocket module and wrote a Python WebSocket client bridging live calls to the Desible AI voice engine, enabling real-time AI handling of answered outbound calls. Deployed on AWS EC2 with SIP trunk origination.",
+    "stack": [
+      "Asterisk",
+      "AudioSocket",
+      "Python",
+      "WebSocket",
+      "Kamailio",
+      "AWS EC2"
+    ]
+  },
+  {
+    "role": "AI Backend Developer",
+    "org": "Raiva",
+    "period": "Oct 2025 – Jan 2026",
+    "location": "Germany · Remote",
+    "summary": "Built a document indexing and search portal supporting text and real-time voice queries over large repositories. Integrated OpenAI for NLU and Whisper for speech-to-text with document-grounded conversational responses. Deployed on Hetzner Cloud.",
+    "stack": [
+      "Python",
+      "OpenAI API",
+      "Whisper",
+      "PostgreSQL",
+      "Hetzner"
+    ]
+  },
+  {
+    "role": "VoIP Engineer",
+    "org": "Lancelot Technology",
+    "period": "Aug – Sep 2025 · 45-day delivery",
+    "location": "Remote",
+    "summary": "Configured Asterisk and Kamailio across two Ubuntu servers with a custom admin panel for extension provisioning, call routing and tenant management. Designed multilingual IVR with language detection and prompt playback.",
+    "stack": [
+      "Asterisk",
+      "Kamailio",
+      "IVR",
+      "Python",
+      "Bash",
+      "Ubuntu"
+    ]
+  },
+  {
+    "role": "VoIP and PBX Engineer",
+    "org": "IWALINK SA",
+    "period": "May – Jun 2025 · 51-day delivery",
+    "location": "Switzerland · Remote",
+    "summary": "Delivered Asterisk PBX from scratch on hosted hardware: softphone login, inbound/outbound calling, voicemail, IVR and SIP trunk integration. Wrote Bash automation and Python AGI programs for dynamic routing, plus an admin panel.",
+    "stack": [
+      "Asterisk",
+      "SIP trunk",
+      "AGI",
+      "Python",
+      "Bash",
+      "Ubuntu"
+    ]
+  },
+  {
+    "role": "Network Associate",
+    "org": "TELUS Digital",
+    "period": "Jan 2022 – Aug 2025",
+    "location": "Canada · Remote",
+    "summary": "Command-based programming, testing and troubleshooting of GTD 5 and DMS 100 telephony switches. Resolved SIP/ISUP call and trunking faults via call tracing and pcap analysis using IRIS, CGIS and Wireshark. Owned incident lifecycle, escalation and RCA.",
+    "stack": [
+      "GTD 5",
+      "DMS 100",
+      "SIP",
+      "ISUP",
+      "Wireshark",
+      "ServiceNow"
+    ]
+  },
+  {
+    "role": "Technical Support Advisor I",
+    "org": "Concentrix",
+    "period": "Feb 2021 – Oct 2021",
+    "location": "Office + Remote",
+    "summary": "Hardware and software support for consumer and enterprise customers. Full remote diagnosis via Rescue, TeamViewer and AnyDesk. Case logging and escalation in SAP and MSD.",
+    "stack": [
+      "SAP",
+      "MSD",
+      "TeamViewer",
+      "AnyDesk",
+      "Windows"
+    ]
+  }
+]

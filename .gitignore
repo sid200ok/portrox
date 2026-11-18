@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+*.bak
+*.bak.*
+.DS_Store
+__pycache__/
+.venv/
+.portrox/
+supabase/.temp/
+supabase/.branches/
+sites/*/assets/**/originals/

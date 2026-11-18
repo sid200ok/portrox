@@ -1,0 +1,69 @@
+[
+  {
+    "title": "PBX-Platform",
+    "summary": "Private multi-tenant telecom core driven by a normalized 12-microservice, 76-table schema. Resilient Kamailio SIP proxy load balancers fronting Asterisk endpoints for unified extension provisioning.",
+    "stack": [
+      "Asterisk",
+      "Kamailio",
+      "FastAPI",
+      "PostgreSQL"
+    ],
+    "url": "https://github.com/sid200ok"
+  },
+  {
+    "title": "OminiVoice",
+    "summary": "In-browser WebRTC testing workbench with instant audio loopback and transcripts, no PSTN/SIP dependency. Multi-tenant lead dialling queues via Celery with usage-based Stripe billing.",
+    "stack": [
+      "FastAPI",
+      "React",
+      "Pipecat",
+      "Celery",
+      "Stripe"
+    ],
+    "url": "https://github.com/sid200ok"
+  },
+  {
+    "title": "FuelRoute Pro",
+    "summary": "Greedy cost-optimization engine over live map geometry to find cheapest fuel stops per vehicle profile. Sub-30ms execution via SHA-256 coordinate-geometry caching.",
+    "stack": [
+      "Django",
+      "OSRM",
+      "Leaflet",
+      "Redis"
+    ],
+    "url": "https://github.com/sid200ok"
+  },
+  {
+    "title": "MyCode",
+    "summary": "Autonomous agentic coding CLI/TUI using local embeddings for semantic caching to cut token cost. Tree-sitter codebase indexing for surgical prompt context behind a workspace trust ledger.",
+    "stack": [
+      "Python",
+      "ChromaDB",
+      "Tree-sitter",
+      "SQLite"
+    ],
+    "url": "https://github.com/sid200ok"
+  },
+  {
+    "title": "Sasyashri",
+    "summary": "Multi-tenant B2B agri-wholesale marketplace with 8 role-based portals and WebAuthn passkeys. Low-latency streaming AI voice agents via NVIDIA Riva plus OCR invoice parsing.",
+    "stack": [
+      "Next.js",
+      "NestJS",
+      "Prisma",
+      "NVIDIA Riva"
+    ],
+    "url": "https://github.com/sid200ok"
+  },
+  {
+    "title": "Spotter ML Platform",
+    "summary": "Industrial ML workbench training a LightGBM regressor on 48K+ rows to predict logistics freight rates. Multi-step wizard pre-parses tabular structure to avoid mid-cycle memory failures.",
+    "stack": [
+      "FastAPI",
+      "Next.js",
+      "LightGBM",
+      "Pandas"
+    ],
+    "url": "https://github.com/sid200ok"
+  }
+]

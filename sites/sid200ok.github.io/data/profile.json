@@ -1,0 +1,36 @@
+{
+  "full_name": "Siddhant Kumar",
+  "headline": "Full-Stack Developer · VoIP and Telephony Engineer · AI System Developer",
+  "location": "Bihar, India · Remote worldwide",
+  "hourly_rate": null,
+  "avatar": "",
+  "skills": [
+    "Asterisk",
+    "Kamailio",
+    "SIP",
+    "ISUP",
+    "WebRTC",
+    "Python",
+    "FastAPI",
+    "Django",
+    "React",
+    "Next.js",
+    "TypeScript",
+    "PostgreSQL",
+    "Redis",
+    "Docker",
+    "Kubernetes",
+    "Terraform",
+    "GitHub Actions",
+    "AWS",
+    "Hetzner",
+    "LLM Orchestration",
+    "Pipecat",
+    "Wireshark"
+  ],
+  "links": {
+    "github": "https://github.com/sid200ok",
+    "linkedin": "https://www.linkedin.com/in/sid-093",
+    "email": "stjl093@gmail.com"
+  }
+}

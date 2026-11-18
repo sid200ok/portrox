@@ -1,0 +1,38 @@
+{
+  "id": "sid200ok.github.io",
+  "name": "sid200ok.github.io",
+  "owner": "sid200ok",
+  "pages": {
+    "mode": "user",
+    "repo": "sid200ok/sid200ok.github.io",
+    "branch": "gh-pages",
+    "base_path": "",
+    "cname": ""
+  },
+  "seo": {
+    "title": "Siddhant Kumar — Full-Stack · VoIP & Telephony · AI Engineer",
+    "description": "Full-Stack Developer, VoIP & Telephony Engineer and AI System Developer. Asterisk/Kamailio PBX, FastAPI, React, LLM voice agents. Available for global remote roles.",
+    "og_image": ""
+  },
+  "nav": {
+    "services": true,
+    "appointments": true,
+    "about": true,
+    "client_auth": false
+  },
+  "theme": {
+    "bg": "#020617",
+    "panel": "#0f172a",
+    "accent": "#22d3ee"
+  },
+  "supabase": {
+    "url": "",
+    "publishable_key": ""
+  },
+  "flags": {
+    "available_for_hire": true,
+    "paid_booking": false,
+    "auto_email": false
+  },
+  "live_url": "https://sid200ok.github.io"
+}

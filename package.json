@@ -1,0 +1,15 @@
+{
+  "name": "portrox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portrox — self-hostable multi-tenant portfolio engine. Local Studio, GitHub Pages publishing.",
+  "bin": { "portrox": "packages/cli/portrox.mjs", "px": "packages/cli/portrox.mjs" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node packages/cli/portrox.mjs start",
+    "status": "node packages/cli/portrox.mjs status",
+    "build": "node packages/cli/portrox.mjs build --all",
+    "audit": "bash scripts/audit-secrets.sh"
+  }
+}

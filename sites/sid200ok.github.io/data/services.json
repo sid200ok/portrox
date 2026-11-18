@@ -1,0 +1,38 @@
+[
+  {
+    "title": "VoIP and PBX Architecture",
+    "description": "Asterisk/Kamailio deployment, SIP trunk configuration, IVR design and multi-tenant PBX admin panels.",
+    "price": "From $2,500",
+    "deliverables": [
+      "PBX install and hardening",
+      "SIP trunk and routing",
+      "IVR / AGI logic",
+      "Admin panel and handover"
+    ],
+    "payment_url": ""
+  },
+  {
+    "title": "AI Voice Agent Development",
+    "description": "STT/TTS/LLM pipelines, Pipecat/FastRTC integration, multilingual IVR and real-time conversational agents.",
+    "price": "From $4,000",
+    "deliverables": [
+      "Voice pipeline design",
+      "LLM and tool orchestration",
+      "Telephony integration",
+      "Latency tuning"
+    ],
+    "payment_url": ""
+  },
+  {
+    "title": "Full-Stack SaaS Build",
+    "description": "FastAPI + React + PostgreSQL, multi-tenant auth, Docker/K8s deployment, CI/CD and monitoring.",
+    "price": "From $8,000",
+    "deliverables": [
+      "Architecture and schema",
+      "Backend and frontend",
+      "CI/CD and IaC",
+      "Observability and runbook"
+    ],
+    "payment_url": ""
+  }
+]

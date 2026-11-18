@@ -1,0 +1,31 @@
+minimum_pre_commit_version: "3.5.0"
+# Applied migrations are immutable artifacts: never let a formatter rewrite them.
+exclude: '^(supabase/migrations/|packages/database/migrations/|dist/|package-lock\.json)'
+repos:
+  - repo: local
+    hooks:
+      - id: forbid-dotenv-in-index
+        name: forbid committing real .env or local config
+        entry: "Real .env / config.json must never be committed. .env.example is allowed."
+        language: fail
+        files: '(^|/)(\.env(\.(?!example$)[^/]*)?|config\.json)$'
+      - id: gitleaks-staged
+        name: gitleaks (staged index, native)
+        entry: scripts/gitleaks-staged.sh
+        language: script
+        pass_filenames: true
+        require_serial: true
+        files: '\.(env|example|js|mjs|cjs|ts|tsx|json|toml|ya?ml|sql|sh|html?|css|py|md|txt|conf|ini)$'
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]

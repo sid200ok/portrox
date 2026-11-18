@@ -1,0 +1,21 @@
+{
+  "timezone": "Asia/Kolkata",
+  "duration_minutes": 30,
+  "weekly": [
+    {
+      "day": "Mon",
+      "from": "10:00",
+      "to": "13:00"
+    },
+    {
+      "day": "Wed",
+      "from": "10:00",
+      "to": "13:00"
+    },
+    {
+      "day": "Fri",
+      "from": "15:00",
+      "to": "18:00"
+    }
+  ]
+}
