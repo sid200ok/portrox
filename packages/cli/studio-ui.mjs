@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -688,6 +688,28 @@ function vSettings(){
         +'<p class="desc">Deleting a repository is irreversible and needs the delete_repo scope.</p>'
         +'<button class="btn danger" data-act="ghrepodel">Delete '+h(cur)+'</button></div>';
     }
+  } else if(S.sub==='content'){
+    /* PORTROX_CONTENT_TAB — editor over the proven /api/content API. */
+    var C=S.ct||{},sites=S.sites||[],cs=C.site||(sites[0]&&sites[0].id)||'';
+    var sopts=sites.map(function(x){return '<option value="'+h(x.id)+'"'+(cs===x.id?' selected':'')+'>'+h(x.id)+'</option>'}).join('');
+    var fs=C.files||[],fopts=fs.map(function(x){return '<option value="'+h(x.file)+'"'+(C.file===x.file?' selected':'')+'>'+h(x.file)+' ('+x.bytes+'B)</option>'}).join('');
+    body='<div class="card"><header><h3>Site content</h3>'
+      +(C.file?'<span class="pill ok"><span class="dot"></span>'+h(C.file)+'</span>':'<span class="pill mute">no file open</span>')+'</header>'
+      +'<p class="desc">Edit the portfolio without touching files on disk. Saves are validated server-side, written atomically, and the previous version is archived. Identity, database binding and publish state are immutable here.</p>'
+      +'<div class="grid g2"><div class="field"><label>Site</label><select class="inp" id="ct-site">'+sopts+'</select></div>'
+      +'<div class="field"><label>File</label><select class="inp" id="ct-file"><option value="">— load files first —</option>'+fopts+'</select></div></div>'
+      +'<div class="row wrap"><button class="btn" data-act="ctload">Load files</button>'
+      +'<button class="btn" data-act="ctopen">Open file</button></div>'
+      +(C.err?'<div class="alert err" style="margin-top:12px">'+h(C.err)+'</div>':'')
+      +(C.text!==undefined
+        ? '<div class="hr"></div><div class="field"><label>'+h(C.file)+' · '+h(C.kind||'')+' · '+C.text.length+' chars</label>'
+          +'<textarea class="inp mono" id="ct-text" rows="22" spellcheck="false">'+h(C.text)+'</textarea>'
+          +'<p class="hint">JSON must parse and satisfy its shape. Markdown needs at least 3 words and no raw script tags. site.json accepts only seo / nav / theme / flags / pages.cname changes.</p></div>'
+          +'<div class="row wrap"><button class="btn pri" data-act="ctsave">Save</button>'
+          +'<button class="btn" data-act="ctsavebuild">Save and rebuild</button>'
+          +'<button class="btn ghost" data-act="ctopen">Discard changes</button></div>'
+        : '<p class="note" style="margin-top:12px">Load files, pick one, then Open file.</p>')
+      +'</div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -787,6 +809,16 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='ctload'){var s=$('ct-site').value;S.ct=S.ct||{};S.ct.site=s;S.ct.err='';
+    return api('/api/content/'+encodeURIComponent(s)).then(function(j){S.ct.files=j;S.ct.text=undefined;S.ct.file='';render()}).catch(function(x){S.ct.err=x.message;render()})}
+  if(a==='ctopen'){var s=$('ct-site').value,f=$('ct-file').value;if(!f){toast('Pick a file first','err');return}
+    S.ct=S.ct||{};S.ct.site=s;S.ct.err='';
+    return api('/api/content/'+encodeURIComponent(s)+'/'+encodeURIComponent(f)).then(function(j){S.ct.file=j.file;S.ct.kind=j.kind;S.ct.text=j.text;render()}).catch(function(x){S.ct.err=x.message;render()})}
+  if(a==='ctsave'||a==='ctsavebuild'){var s=S.ct.site,f=S.ct.file,t=$('ct-text').value;
+    S.ct.err='';logline('saving '+f+' …');
+    return api('/api/content/write',{site:s,file:f,text:t}).then(function(j){S.ct.text=t;toast('Saved '+j.file+' ('+j.bytes+'B)','ok');logline('saved '+j.file+' '+j.bytes+'B','ok');
+      if(a==='ctsavebuild'){return api('/api/sites/'+encodeURIComponent(s)+'/build',{}).then(function(b){toast('Rebuilt '+s,'ok');logline('rebuilt '+s,'ok');render()})}
+      render()}).catch(function(x){S.ct.err=x.message;toast(x.message,'err');logline('save FAILED: '+x.message,'err');render()})}
   if(a==='ghwho')return api('/api/github/whoami',{}).then(function(j){S.gh=S.gh||{};S.gh.who=j;toast('Signed in as '+j.login,'ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='ghrepos')return api('/api/github/repos',{}).then(function(j){S.gh=S.gh||{};S.gh.repos=j;toast(j.length+' repositories','ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='ghnew')return ghNewRepo();

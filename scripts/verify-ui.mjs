@@ -62,6 +62,17 @@ try {
   }
   app.includes('gh-repo') ? ok('repository selector present') : fail('repository selector missing');
   app.includes('PORTROX_GH_CONN') ? ok('GitHub connection panel present') : fail('connection panel missing');
+  app.includes('PORTROX_CONTENT_TAB') ? ok('content editor tab present') : fail('content editor tab missing - backend-only module');
+  app.includes("'content'") ? ok('content settings tab registered') : fail('content tab not registered');
+  for (const ep of ['/api/content/','/api/content/write']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const id of ['ct-site','ct-file','ct-text']) {
+    app.includes(id) ? ok('editor control ' + id) : fail('editor control ' + id + ' missing');
+  }
+  for (const act of ['ctload','ctopen','ctsave','ctsavebuild']) {
+    app.includes(act) ? ok('editor action ' + act) : fail('editor action ' + act + ' missing');
+  }
   for (const ep of ['/api/gh/auth/status','/api/gh/auth/connect','/api/gh/auth/system','/api/gh/auth/disconnect','/api/github/secret/set','/api/gh/console','/api/supabase/advisors']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }
