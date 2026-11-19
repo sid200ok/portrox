@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -578,6 +578,68 @@ function vSettings(){
       +'<tr><td><span class="pill mute">org</span></td><td class="mono">org.github.io</td><td>1 per org</td></tr>'
       +'<tr><td><span class="pill mute">custom</span></td><td class="mono">yourdomain.com</td><td>needs DNS + cname</td></tr>'
       +'</tbody></table></div></div>';
+  } else if(S.sub==='ghops'){
+    /* PORTROX_GH_TAB — the button equivalent of the gh CLI. */
+    var G=S.gh||{},repos=G.repos||[],cur=G.repo||'';
+    var opts=repos.map(function(r){return '<option value="'+h(r.full_name)+'"'+(cur===r.full_name?' selected':'')+'>'+h(r.full_name)+(r.private?' (private)':'')+'</option>'}).join('');
+    function tbl(cols,rows,cells){ if(!rows||!rows.length) return '<p class="note">none</p>';
+      return '<div class="tblwrap"><table><thead><tr>'+cols.map(function(x){return '<th>'+h(x)+'</th>'}).join('')+'</tr></thead><tbody>'
+        +rows.map(function(r){return '<tr>'+cells(r).map(function(x){return '<td>'+x+'</td>'}).join('')+'</tr>'}).join('')+'</tbody></table></div>'; }
+    body='<div class="card"><header><h3>Repository</h3>'+(G.who?'<span class="pill ok"><span class="dot"></span>'+h(G.who.login)+'</span>':'<span class="pill mute">no token</span>')+'</header>'
+      +'<p class="desc">Everything the gh CLI does for publishing, as buttons. Set the PAT in the GitHub tab, refresh repositories, pick one, then Load panels.</p>'
+      +'<div class="row wrap"><button class="btn" data-act="ghwho">Who am I</button><button class="btn" data-act="ghrepos">Refresh repositories</button><button class="btn pri" data-act="ghnew">Create repository</button></div>'
+      +'<div class="field" style="margin-top:14px"><label>Selected repository</label><select class="inp" id="gh-repo"><option value="">— select —</option>'+opts+'</select></div>'
+      +'<div class="row wrap"><button class="btn pri" data-act="ghload">Load panels</button></div></div>';
+    if(cur){
+      var P=G.pages||{},W=G.workflows||[],R=G.runs||[],B=G.branches||[],C=G.commits||[],S2=G.secrets||[],LB=G.latest||{};
+      body+='<div class="card" style="margin-top:14px"><header><h3>GitHub Pages</h3>'
+        +(P.enabled?'<span class="pill ok"><span class="dot"></span>'+h(P.status||'enabled')+'</span>':'<span class="pill mute">not enabled</span>')+'</header>'
+        +'<dl class="kv"><dt>Build type</dt><dd>'+h(P.build_type||'—')+'</dd>'
+        +'<dt>Source</dt><dd class="mono">'+h((P.source&&P.source.branch)||'—')+' '+h((P.source&&P.source.path)||'')+'</dd>'
+        +'<dt>Live URL</dt><dd class="mono">'+h(P.html_url||'—')+'</dd>'
+        +'<dt>Custom domain</dt><dd class="mono">'+h(P.cname||'—')+'</dd>'
+        +'<dt>HTTPS enforced</dt><dd>'+(P.https_enforced?'yes':'no')+'</dd>'
+        +'<dt>Latest build</dt><dd>'+h(LB.status||'—')+(LB.error?' · '+h(LB.error):'')+'</dd></dl>'
+        +'<div class="hr"></div><div class="grid g2"><div>'
+        +'<div class="field"><label>Source branch</label><input class="inp mono" id="gh-branch" value="'+h((P.source&&P.source.branch)||'gh-pages')+'"></div>'
+        +'<div class="field"><label>Source path</label><select class="inp" id="gh-path"><option value="/">/</option><option value="/docs"'+((P.source&&P.source.path)==='/docs'?' selected':'')+'>/docs</option></select></div>'
+        +'<div class="field"><label>Build type</label><select class="inp" id="gh-bt"><option value="legacy"'+(P.build_type!=='workflow'?' selected':'')+'>legacy (branch)</option><option value="workflow"'+(P.build_type==='workflow'?' selected':'')+'>workflow (Actions)</option></select></div>'
+        +'</div><div>'
+        +'<div class="field"><label>Custom domain (blank clears)</label><input class="inp mono" id="gh-cname" value="'+h(P.cname||'')+'"></div>'
+        +'<label class="check"><input type="checkbox" id="gh-https"'+(P.https_enforced?' checked':'')+'><span>Enforce HTTPS</span></label>'
+        +'</div></div>'
+        +'<div class="row wrap" style="margin-top:12px">'
+        +'<button class="btn pri" data-act="ghpenable">Enable / apply</button>'
+        +'<button class="btn" data-act="ghpupdate">Update settings</button>'
+        +'<button class="btn" data-act="ghpbuild">Request build</button>'
+        +'<button class="btn" data-act="ghpbuilds">Build history</button>'
+        +'<button class="btn" data-act="ghpdns">DNS health</button>'
+        +'<button class="btn danger" data-act="ghpdisable">Disable Pages</button></div>'
+        +(G.builds?tbl(['Status','Commit','Duration ms','Created','Error'],G.builds,function(x){return [h(x.status||''),'<span class="mono">'+h((x.commit||'').slice(0,8))+'</span>',h(x.duration||0),h(x.created_at||''),h(x.error||'')]}):'')
+        +(G.dns?'<div class="hr"></div><pre class="log" style="max-height:220px">'+h(JSON.stringify(G.dns,null,2))+'</pre>':'')
+        +'</div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>Workflows</h3><button class="btn sm" data-act="ghwf">Refresh</button></header>'
+        +tbl(['Name','File','State','Actions'],W,function(w){return [h(w.name),'<span class="mono">'+h(w.path)+'</span>',h(w.state),
+          '<button class="btn sm" data-act="ghwfon" data-file="'+h(w.path)+'">Enable</button> <button class="btn sm" data-act="ghwfoff" data-file="'+h(w.path)+'">Disable</button> <button class="btn sm pri" data-act="ghwfrun" data-file="'+h(w.path)+'">Run</button>']})
+        +'</div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>Workflow runs</h3><button class="btn sm" data-act="ghruns">Refresh</button></header>'
+        +tbl(['Run','Name','Status','Conclusion','Branch','Actions'],R,function(x){return ['<span class="mono">'+h(x.id)+'</span>',h(x.name||''),h(x.status||''),h(x.conclusion||'—'),h(x.head_branch||''),
+          '<button class="btn sm" data-act="ghrcancel" data-id="'+h(x.id)+'">Cancel</button> <button class="btn sm" data-act="ghrrerun" data-id="'+h(x.id)+'">Re-run</button>']})
+        +'</div>'
+        +'<div class="grid g2" style="margin-top:14px">'
+        +'<div class="card"><header><h3>Branches</h3><button class="btn sm" data-act="ghbr">Refresh</button></header>'
+        +tbl(['Branch','SHA','Protected'],B,function(x){return [h(x.name),'<span class="mono">'+h((x.sha||'').slice(0,8))+'</span>',x.protected?'yes':'no']})+'</div>'
+        +'<div class="card"><header><h3>Recent commits</h3><button class="btn sm" data-act="ghcm">Refresh</button></header>'
+        +tbl(['SHA','Message','Author'],C,function(x){return ['<span class="mono">'+h((x.sha||'').slice(0,8))+'</span>',h(x.message||''),h(x.author||'')]})+'</div>'
+        +'</div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>Actions secrets</h3><button class="btn sm" data-act="ghsec">Refresh</button></header>'
+        +'<p class="desc">Names only — values are never readable. Creating a secret needs sealed-box encryption, so use <span class="mono">gh secret set</span> in the terminal for now.</p>'
+        +tbl(['Name','Updated','Actions'],S2,function(x){return ['<span class="mono">'+h(x.name)+'</span>',h(x.updated_at||''),'<button class="btn sm danger" data-act="ghsecdel" data-name="'+h(x.name)+'">Delete</button>']})
+        +'</div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>Danger zone</h3></header>'
+        +'<p class="desc">Deleting a repository is irreversible and needs the delete_repo scope.</p>'
+        +'<button class="btn danger" data-act="ghrepodel">Delete '+h(cur)+'</button></div>';
+    }
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -663,6 +725,34 @@ function act(a,id,btn){
   if(a==='sbrefresh')return api('/api/supabase/refresh',{}).then(function(c){S.cfg=c;toast('Projects refreshed.','ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='sbforget')return api('/api/supabase/forget',{}).then(function(c){S.cfg=c;toast('Supabase token removed.','info');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='pdefault')return api('/api/supabase/default',{ref:btn.getAttribute('data-ref')}).then(function(c){S.cfg=c;toast('Default project set.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghwho')return api('/api/github/whoami',{}).then(function(j){S.gh=S.gh||{};S.gh.who=j;toast('Signed in as '+j.login,'ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghrepos')return api('/api/github/repos',{}).then(function(j){S.gh=S.gh||{};S.gh.repos=j;toast(j.length+' repositories','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghnew')return ghNewRepo();
+  if(a==='ghload'){var r=$('gh-repo').value;if(!r){toast('Select a repository first','err');return}
+    S.gh=S.gh||{};S.gh.repo=r;toast('Loading panels…','info');
+    return Promise.all([api('/api/github/pages/status',{repo:r}),api('/api/github/pages/latest',{repo:r}),api('/api/github/workflows',{repo:r}),api('/api/github/runs',{repo:r}),api('/api/github/branches',{repo:r}),api('/api/github/commits',{repo:r}),api('/api/github/secrets',{repo:r})])
+      .then(function(v){S.gh.pages=v[0];S.gh.latest=v[1];S.gh.workflows=v[2];S.gh.runs=v[3];S.gh.branches=v[4];S.gh.commits=v[5];S.gh.secrets=v[6];render();toast('Panels loaded','ok')})
+      .catch(function(x){toast(x.message,'err');render()})}
+  if(a==='ghpenable'||a==='ghpupdate'){var r=S.gh.repo;var pl={repo:r,branch:$('gh-branch').value,path:$('gh-path').value,build_type:$('gh-bt').value,cname:$('gh-cname').value,https_enforced:$('gh-https').checked};
+    return api(a==='ghpenable'?'/api/github/pages/enable':'/api/github/pages/update',pl).then(function(j){S.gh.pages=j;toast('Pages applied','ok');render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghpbuild')return api('/api/github/pages/build',{repo:S.gh.repo}).then(function(j){toast('Build '+j.status,'ok');logline('pages build '+JSON.stringify(j),'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghpbuilds')return api('/api/github/pages/builds',{repo:S.gh.repo}).then(function(j){S.gh.builds=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghpdns')return api('/api/github/pages/dns',{repo:S.gh.repo}).then(function(j){S.gh.dns=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghpdisable'){var r=S.gh.repo;if(prompt('Type the full repo name to disable Pages:')!==r)return;
+    return api('/api/github/pages/disable',{repo:r,confirm:r}).then(function(j){S.gh.pages=j;toast('Pages disabled','info');render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghwf')return api('/api/github/workflows',{repo:S.gh.repo}).then(function(j){S.gh.workflows=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghwfon'||a==='ghwfoff')return api('/api/github/workflow/state',{repo:S.gh.repo,file:btn.getAttribute('data-file'),enable:a==='ghwfon'}).then(function(j){toast(j.file+' → '+j.state,'ok');return api('/api/github/workflows',{repo:S.gh.repo}).then(function(w){S.gh.workflows=w;render()})}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghwfrun'){var f=btn.getAttribute('data-file');var rf=prompt('Branch / ref to run on:','main');if(!rf)return;
+    return api('/api/github/workflow/dispatch',{repo:S.gh.repo,file:f,ref:rf}).then(function(j){toast('Dispatched '+j.dispatched+' on '+j.ref,'ok')}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghruns')return api('/api/github/runs',{repo:S.gh.repo}).then(function(j){S.gh.runs=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghrcancel'||a==='ghrrerun')return api('/api/github/run/action',{repo:S.gh.repo,id:btn.getAttribute('data-id'),action:a==='ghrcancel'?'cancel':'rerun'}).then(function(j){toast('Run '+j.id+' '+j.action,'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghbr')return api('/api/github/branches',{repo:S.gh.repo}).then(function(j){S.gh.branches=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghcm')return api('/api/github/commits',{repo:S.gh.repo}).then(function(j){S.gh.commits=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghsec')return api('/api/github/secrets',{repo:S.gh.repo}).then(function(j){S.gh.secrets=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghsecdel'){var n=btn.getAttribute('data-name');if(prompt('Type the secret name to delete:')!==n)return;
+    return api('/api/github/secret/delete',{repo:S.gh.repo,name:n,confirm:n}).then(function(){toast('Deleted '+n,'info');return api('/api/github/secrets',{repo:S.gh.repo}).then(function(j){S.gh.secrets=j;render()})}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghrepodel'){var r=S.gh.repo;if(prompt('Type the full repo name to DELETE it permanently:')!==r)return;
+    return api('/api/github/repo/delete',{repo:r,confirm:r}).then(function(){toast('Deleted '+r,'info');S.gh.repo='';return api('/api/github/repos',{}).then(function(j){S.gh.repos=j;render()})}).catch(function(x){toast(x.message,'err')})}
   if(a==='pboot'){var pr=btn.getAttribute('data-ref');btn.disabled=true;btn.classList.add('busy');logline('bootstrap '+pr+' …');return api('/api/supabase/projects/'+pr+'/schema',{bootstrap:true}).then(function(j){toast('Bootstrap: '+j.count+' files via '+j.via,'ok');logline('bootstrap '+pr+' OK '+JSON.stringify(j),'ok');return api('/api/config').then(function(c){S.cfg=c;render()})}).catch(function(x){toast(x.message,'err');logline('bootstrap FAILED: '+x.message,'err');render()}).finally(function(){btn.disabled=false;btn.classList.remove('busy')})}
   if(a==='pkey'||a==='pschema'||a==='phealth'){var ref=btn.getAttribute('data-ref');var ep=a==='pkey'?'key':(a==='pschema'?'schema':'health');
     btn.disabled=true;btn.classList.add('busy');logline(a+' '+ref+' …');
@@ -689,6 +779,22 @@ function newSite(){
       $('ns-mode').onchange=hint;hint();$('ns-name').focus();
       $('ns-ok').onclick=function(){var b=$('ns-ok');b.disabled=true;b.textContent='Creating…';
         api('/api/sites',{name:$('ns-name').value,headline:$('ns-head').value,mode:$('ns-mode').value}).then(function(j){close();toast('Created '+j.id,'ok');logline('created '+j.id,'ok');S.sel=j.id;return load()}).catch(function(x){var e=$('ns-err');e.textContent=x.message;e.classList.remove('hide');b.disabled=false;b.textContent='Create site'})};
+    }});
+}
+function ghNewRepo(){
+  modal({title:'Create GitHub repository',sub:'Mirrors: gh repo create <name> --public',
+    body:'<div id="gn-err" class="alert err hide"></div>'
+      +'<div class="field"><label>Repository name</label><input class="inp mono" id="gn-name" placeholder="client-x"></div>'
+      +'<div class="field"><label>Owner (blank = your account; an org login creates it there)</label><input class="inp mono" id="gn-owner" placeholder=""></div>'
+      +'<div class="field"><label>Description</label><input class="inp" id="gn-desc" placeholder="Portfolio published by Portrox"></div>'
+      +'<label class="check"><input type="checkbox" id="gn-priv"><span>Private repository</span></label>',
+    footer:'<button class="btn ghost" id="gn-c">Cancel</button><button class="btn pri" id="gn-ok">Create</button>',
+    onMount:function(close){$('gn-c').onclick=close;$('gn-name').focus();
+      $('gn-ok').onclick=function(){var b=$('gn-ok');b.disabled=true;b.textContent='Creating…';
+        api('/api/github/repo/create',{name:$('gn-name').value,owner:$('gn-owner').value,description:$('gn-desc').value,private:$('gn-priv').checked})
+          .then(function(j){close();toast('Created '+j.full_name,'ok');S.gh=S.gh||{};S.gh.repo=j.full_name;
+            return api('/api/github/repos',{}).then(function(r){S.gh.repos=r;render()})})
+          .catch(function(x){var e=$('gn-err');e.textContent=x.message;e.classList.remove('hide');b.disabled=false;b.textContent='Create'})};
     }});
 }
 function newProjectModal(siteId){

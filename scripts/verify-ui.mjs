@@ -54,6 +54,13 @@ try {
 
   // Real surface, not dead code.
   app.includes('PORTROX_PROJECT_TAB') ? ok('project-binding tab present') : fail('project-binding tab missing (dead tab still shipped)');
+  app.includes('PORTROX_GH_TAB') ? ok('GitHub ops tab present') : fail('GitHub ops tab missing');
+  app.includes("'ghops'") ? ok('ghops settings tab registered') : fail('ghops tab not registered');
+  app.includes('ghNewRepo') ? ok('create-repo modal present') : fail('create-repo modal missing');
+  for (const ep of ['/api/github/repos','/api/github/pages/status','/api/github/pages/enable','/api/github/workflows','/api/github/runs','/api/github/secrets']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  app.includes('gh-repo') ? ok('repository selector present') : fail('repository selector missing');
   app.includes('/api/config/test-db') ? fail('dead endpoint /api/config/test-db still referenced') : ok('no dead test-db endpoint');
   app.includes('/api/config/supabase') ? fail('dead endpoint /api/config/supabase still referenced') : ok('no dead config/supabase endpoint');
   app.includes('db_configured') ? fail('removed field db_configured still read') : ok('no removed db_configured field');

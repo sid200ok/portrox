@@ -21,7 +21,7 @@ const need = [
   'supabase/migrations/20261117220000_portrox_init.sql','supabase/migrations/20261118230000_studio_owner.sql',
   'scripts/audit-secrets.sh','scripts/gitleaks-staged.sh','scripts/triage.mjs',
   'scripts/verify-render.mjs','scripts/verify-rpc.mjs','scripts/verify-daemon.mjs',
-  'scripts/verify-ui.mjs','scripts/verify-auth.mjs','scripts/verify-github.mjs','scripts/verify-live.mjs','scripts/verify-all.sh',
+  'scripts/verify-ui.mjs','scripts/verify-auth.mjs','scripts/verify-github.mjs','scripts/verify-supabase.mjs','scripts/verify-live.mjs','scripts/verify-all.sh',
   'scripts/supabase-lab.sh','scripts/migrate-store.mjs','scripts/reconcile-schema.mjs','scripts/supabase-ops.mjs',
   'docs/UI-TO-TERMINAL.md',
   'sites/sid200ok.github.io/site.json','sites/sid200ok.github.io/content/intro.md',
@@ -46,14 +46,23 @@ const DOTENV_PATTERNS = [
   /(?:^|\n)\s*(?:source|\.)\s+["']?[^\s'"]*\.env(\.[A-Za-z0-9_-]+)?["']?\s*(?:$|\n|#)/
 ];
 const readers = [];
+// This scanner NECESSARILY contains dotenv examples in its own documentation.
+// Scanning itself is a guaranteed false positive, so it is excluded by path.
+const SELF = 'scripts/preflight.mjs';
+// Strip comment lines before testing: a documented example is not a read.
+const stripComments = src => src.split('\n')
+  .filter(l => { const t = l.trim(); return !(t.startsWith('*') || t.startsWith('//') || t.startsWith('#') || t.startsWith('/*')); })
+  .join('\n');
 const walk = d => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     if (['node_modules', '.git', 'dist'].includes(e.name)) continue;
     const p = join(d, e.name);
     if (e.isDirectory()) walk(p);
     else if (/\.(mjs|js|cjs|sh)$/.test(e.name)) {
-      const s = readFileSync(p, 'utf8');
-      if (DOTENV_PATTERNS.some(re => re.test(s))) readers.push(p);
+      const rel = p.replace(/^\.\//, '');
+      if (rel === SELF) continue;
+      const code = stripComments(readFileSync(p, 'utf8'));
+      if (DOTENV_PATTERNS.some(re => re.test(code))) readers.push(rel);
     }
   }
 };

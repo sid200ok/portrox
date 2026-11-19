@@ -13,6 +13,12 @@ node scripts/preflight.mjs || stop "preflight failed"
 step "emitted browser script"
 node scripts/verify-ui.mjs || stop "emitted UI script invalid — pages would render empty"
 
+step "supabase management surface"
+node scripts/verify-supabase.mjs || stop "Supabase Management API gate failed"
+
+step "github operations surface"
+node scripts/verify-github.mjs || stop "GitHub operations gate failed"
+
 step "auth lifecycle regression (sandbox)"
 node scripts/verify-auth.mjs || stop "auth regression failed"
 
