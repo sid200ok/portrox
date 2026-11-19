@@ -55,7 +55,19 @@ function target(root, file) {
   return { p, spec };
 }
 
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * A2: JSON object key order carries no meaning. Raw stringify comparison
+ * refused a protected field that had not actually changed, simply because the
+ * editor rebuilt the object in a different key order. Canonicalise: sort object
+ * keys recursively; arrays keep their order because order IS meaningful there.
+ */
+function canon(v) {
+  if (v === undefined) return 'undefined';
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+}
+const same = (a, b) => canon(a) === canon(b);
 
 function validate(spec, text, root) {
   if (spec.kind === 'markdown') {
