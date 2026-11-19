@@ -1,17 +1,31 @@
 /**
  * SQL comment stripper for transport.
  *
- * WHY: the Supabase SQL endpoints split statements naively on ';' and do not
- * fully respect comments or dollar quotes. A semicolon INSIDE a comment orphaned
- * the comment tail, which was then parsed as SQL:
- *   "-- ... (privilege granted; latent exposure)"  ->  42601 near ")"
- *   '-- ... "array_agg" is an aggregate function'  ->  42809 array_agg
- * Stripping comments before sending removes that entire failure class.
+ * HONEST STATUS: this was introduced on a hypothesis that was later DISPROVEN.
+ * A direct probe showed the Supabase query endpoint handles semicolons inside
+ * comments, quoted identifiers inside comments, and semicolons inside DO
+ * comments correctly. The real cause of the earlier 42601/42809 failures was
+ * never isolated (three changes landed together). This module is kept as
+ * defensive normalisation only. It is NOT a proven fix for anything.
  *
- * This is a real lexer, not a regex: it respects single-quoted strings ('' escape),
- * double-quoted identifiers, dollar-quoted bodies (recursively), and nested
- * block comments. Pure ASCII.
+ * CRITICAL CORRECTNESS RULE: a dollar-quoted STRING LITERAL is data, not code.
+ *   insert into t values ($$keep -- this$$)   MUST survive byte-identical.
+ * Only a DO/AS body is PL/pgSQL, where -- really is a comment. Recursing into
+ * every dollar quote silently truncated string data. That bug is fixed here.
+ *
+ * Real lexer: single quotes with '' escape, quoted identifiers, nested block
+ * comments, dollar quotes with body-vs-literal discrimination. Pure ASCII.
  */
+
+/** Word immediately before position i, lowercased. Empty if punctuation. */
+function prevWord(s, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(s[j])) j--;
+  const end = j + 1;
+  while (j >= 0 && /[A-Za-z_]/.test(s[j])) j--;
+  return s.slice(j + 1, end).toLowerCase();
+}
+
 export function stripSqlComments(sql) {
   const s = String(sql == null ? '' : sql);
   const n = s.length;
@@ -19,11 +33,11 @@ export function stripSqlComments(sql) {
   let i = 0;
   while (i < n) {
     const c = s[i], d = s[i + 1];
-    if (c === '-' && d === '-') {                 // line comment
+    if (c === '-' && d === '-') {
       while (i < n && s[i] !== '\n') i++;
-      continue;                                   // newline is emitted next pass
+      continue;
     }
-    if (c === '/' && d === '*') {                 // nested block comment
+    if (c === '/' && d === '*') {
       let depth = 1; i += 2;
       while (i < n && depth > 0) {
         if (s[i] === '/' && s[i + 1] === '*') { depth++; i += 2; }
@@ -33,19 +47,23 @@ export function stripSqlComments(sql) {
       out += ' ';
       continue;
     }
-    if (c === '$') {                              // dollar-quoted body
+    if (c === '$') {
       const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i));
       if (m) {
         const tag = m[0];
         const end = s.indexOf(tag, i + tag.length);
         if (end === -1) { out += s.slice(i); break; }
         const body = s.slice(i + tag.length, end);
-        out += tag + stripSqlComments(body) + tag;  // recurse: PL/pgSQL comments too
+        const w = prevWord(s, i);
+        // DO $tag$ ... $tag$  and  AS $tag$ ... $tag$  are code bodies.
+        // Anything else is a string literal and MUST be preserved verbatim.
+        const isBody = (w === 'do' || w === 'as');
+        out += tag + (isBody ? stripSqlComments(body) : body) + tag;
         i = end + tag.length;
         continue;
       }
     }
-    if (c === "'") {                              // single-quoted string
+    if (c === "'") {
       out += c; i++;
       while (i < n) {
         if (s[i] === "'" && s[i + 1] === "'") { out += "''"; i += 2; continue; }
@@ -55,7 +73,7 @@ export function stripSqlComments(sql) {
       }
       continue;
     }
-    if (c === '"') {                              // quoted identifier
+    if (c === '"') {
       out += c; i++;
       while (i < n) { out += s[i]; if (s[i] === '"') { i++; break; } i++; }
       continue;
@@ -65,7 +83,9 @@ export function stripSqlComments(sql) {
   return out;
 }
 
-/** Collapse blank runs left behind, keep statement text byte-identical otherwise. */
 export function sanitizeForTransport(sql) {
-  return stripSqlComments(sql).split('\n').map(l => l.replace(/\s+$/, '')).filter((l, idx, arr) => !(l === '' && arr[idx - 1] === '')).join('\n').trim();
+  return stripSqlComments(sql)
+    .split('\n').map(l => l.replace(/\s+$/, ''))
+    .filter((l, idx, arr) => !(l === '' && arr[idx - 1] === ''))
+    .join('\n').trim();
 }

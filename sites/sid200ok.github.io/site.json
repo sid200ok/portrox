@@ -38,5 +38,7 @@
   "database": {
     "mode": "shared",
     "project_ref": "nwpolajiufkxpvgdeddi"
-  }
+  },
+  "registered": true,
+  "published": true
 }
