@@ -1,10 +1,16 @@
 /**
  * Proves the Management API surface works and GATES security regressions.
  *   node scripts/verify-supabase.mjs [project_ref]
- * Skips cleanly (exit 0) with no account token. With a token, any non-accepted
- * security finding is a FAIL: portrox_submit / portrox_book are the only
- * anon-executable SECURITY DEFINER functions we accept (rate-limited intake).
- * Pure ASCII on purpose.
+ *
+ * Accepted exceptions, both principled rather than name-based:
+ *  1. portrox_submit / portrox_book are anon-executable SECURITY DEFINER
+ *     functions BY DESIGN: they are the rate-limited intake doors.
+ *  2. A table with RLS ENABLED and NO grants for anon/authenticated is
+ *     DENY-ALL. Dropping the dormant legacy policies produced
+ *     rls_enabled_no_policy lints on exactly such tables. That is the safest
+ *     possible state, not a vulnerability, and it must not block a release.
+ *     Destroying data to silence a linter would be the wrong trade: the
+ *     contact_messages rows may be real leads from the previous site.
  */
 import { readdirSync } from 'node:fs';
 import { loadConfig, maskedConfig, accessToken } from '../packages/cli/config-store.mjs';
@@ -17,6 +23,7 @@ let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 const note = m => console.log('NOTE ' + m);
+const rows = r => Array.isArray(r) ? r : [];
 
 if (!c.supabase.access_token) {
   note('no Supabase account token - Studio -> Settings -> Supabase account. Skipping (no verdict).');
@@ -25,11 +32,9 @@ if (!c.supabase.access_token) {
 if (!ref) { console.log('FAIL token set but no project loaded'); process.exit(1); }
 console.log('project ref: ' + ref);
 const T = () => accessToken();
-const ACCEPTED = new Set(['public.portrox_submit', 'public.portrox_book']);
+const ACCEPTED_FUNCS = new Set(['public.portrox_submit', 'public.portrox_book']);
 const objOf = l => { const md = l.metadata || {}; return [md.schema, md.entity || md.name].filter(Boolean).join('.'); };
 
-// Identity probe = organizations. /v1/profile needs a USER-scoped token; a
-// scoped PAT legitimately refuses it and that is NOT a defect.
 try {
   const o = await M.listOrganizations(T());
   ok('identity via organizations: ' + o.length + ' (' + o.map(x => x.slug).join(', ') + ')');
@@ -59,12 +64,27 @@ catch (e) { fail('ensureKey: ' + e.message); }
 
 try {
   const m = await M.listMigrations(T(), ref);
-  const remote = (Array.isArray(m) ? m : []).map(x => String(x.version || '')).filter(Boolean);
+  const remote = rows(m).map(x => String(x.version || '')).filter(Boolean);
   const local = readdirSync('supabase/migrations').filter(f => f.endsWith('.sql')).map(f => f.split('_')[0]);
   const orphan = remote.filter(v => local.includes(v) === false);
   ok('migrations recorded server-side: ' + remote.length + ' (local files: ' + local.length + ')');
   if (orphan.length) note('DRIFT: ' + orphan.length + ' remote version(s) have no local file: ' + orphan.join(', '));
 } catch (e) { note('listMigrations unavailable: ' + e.message); }
+
+// Catalog evidence for deny-all classification.
+const DENY = new Set();
+try {
+  const q = "select c.relname as t, c.relrowsecurity as rls,"
+    + " (has_table_privilege('anon',c.oid,'SELECT') or has_table_privilege('anon',c.oid,'INSERT')"
+    + "  or has_table_privilege('anon',c.oid,'UPDATE') or has_table_privilege('anon',c.oid,'DELETE')"
+    + "  or has_table_privilege('authenticated',c.oid,'SELECT') or has_table_privilege('authenticated',c.oid,'INSERT')"
+    + "  or has_table_privilege('authenticated',c.oid,'UPDATE') or has_table_privilege('authenticated',c.oid,'DELETE')) as any_grant"
+    + " from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r'";
+  for (const r of rows(await M.runQuery(T(), ref, q, { read_only: true }))) {
+    if (r.rls === true && r.any_grant === false) DENY.add('public.' + r.t);
+  }
+  if (DENY.size) note('deny-all tables (RLS on, zero client grants): ' + [...DENY].join(', '));
+} catch (e) { note('cannot classify deny-all tables: ' + e.message); }
 
 for (const [label, fn] of [['security', () => M.securityAdvisor(T(), ref)], ['performance', () => M.performanceAdvisor(T(), ref)]]) {
   try {
@@ -72,23 +92,25 @@ for (const [label, fn] of [['security', () => M.securityAdvisor(T(), ref)], ['pe
     if (a.unavailable) { note(label + ' advisor unavailable: ' + a.error); continue; }
     const lints = a.lints || [];
     ok(label + ' advisor lints: ' + lints.length);
-    for (const l of lints.slice(0, 14)) {
-      console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' on ' + objOf(l));
-    }
+    for (const l of lints.slice(0, 14)) console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' on ' + objOf(l));
     if (label === 'security') {
       const serious = lints.filter(l => /^(ERROR|WARN)$/i.test(String(l.level || '')));
-      const unaccepted = serious.filter(l => ACCEPTED.has(objOf(l)) === false);
+      const unaccepted = serious.filter(l => {
+        const o = objOf(l);
+        return ACCEPTED_FUNCS.has(o) === false && DENY.has(o) === false;
+      });
+      const denied = serious.filter(l => DENY.has(objOf(l)));
+      if (denied.length) note(denied.length + ' lint(s) on deny-all tables - unreachable, intentional');
       if (unaccepted.length) {
-        fail(unaccepted.length + ' NON-ACCEPTED security finding(s) - run: node scripts/harden-apply.mjs');
+        fail(unaccepted.length + ' NON-ACCEPTED security finding(s)');
         for (const l of unaccepted) console.log('     ' + (l.level || '?') + ' ' + objOf(l) + (l.remediation ? '  ' + l.remediation : ''));
       } else if (serious.length) {
-        note(serious.length + ' security lint(s), all ACCEPTED (rate-limited intake doors)');
+        note(serious.length + ' security lint(s), all accepted (intake doors or deny-all tables)');
       }
     }
   } catch (e) { note(label + ' advisor: ' + e.message); }
 }
 
-// full_history must refuse a wrong confirmation.
 try {
   await M.applySchema(T(), ref, process.cwd(), { full_history: true, confirm: 'wrong' });
   fail('full_history did NOT refuse a wrong confirmation');

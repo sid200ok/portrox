@@ -16,7 +16,8 @@ export const MIRROR_MAP = {
   '20261118230000_studio_owner.sql': '0002_studio_owner.sql',
   '20261119070000_harden_definer.sql': '0003_harden_definer.sql',
   '20261119080000_perf_rls_fk.sql': '0004_perf_rls_fk.sql',
-  '20261119090000_legacy_lockdown.sql': '0005_legacy_lockdown.sql'
+  '20261119090000_legacy_lockdown.sql': '0005_legacy_lockdown.sql',
+  '20261119100000_drop_legacy_policies.sql': '0006_drop_legacy_policies.sql'
 };
 /** [mirrorPath, sourcePath] pairs derived from the map. Never hand-written. */
 export function mirrorPairs() {
