@@ -59,6 +59,9 @@ node scripts/restore-db.mjs || stop "latest backup is not restorable"
 step "probe cleanup"
 node scripts/clean-probes.mjs || stop "probe cleanup failed - production inbox is accumulating test rows"
 
+step "contact consistency"
+node scripts/check-contact.mjs || stop "contact details disagree across site profiles and documents"
+
 step "profile handle"
 node scripts/check-profile.mjs || stop "profile links do not match the authenticated GitHub handle"
 

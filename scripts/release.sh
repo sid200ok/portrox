@@ -20,6 +20,7 @@ MSG="${1:-}"
 [ -n "$MSG" ] || { echo "usage: bash scripts/release.sh \"commit message\""; exit 2; }
 
 OFFSITE_STATE="skipped"
+PP_CUSTODY="absent"
 PP_FILE="$HOME/.portrox/backup-passphrase"
 
 echo "== local backup =="
@@ -32,14 +33,17 @@ if [ "${PORTROX_SKIP_OFFSITE:-0}" = "1" ]; then
 else
   if [ -n "${PORTROX_BACKUP_PASSPHRASE:-}" ]; then
     echo "passphrase: environment"
+    PP_CUSTODY="environment"
   elif [ -f "$PP_FILE" ]; then
     PORTROX_BACKUP_PASSPHRASE="$(cat "$PP_FILE")"
     export PORTROX_BACKUP_PASSPHRASE
     echo "passphrase: $PP_FILE"
+    PP_CUSTODY="ON DISK - copy to a password manager, then shred -u $PP_FILE"
     echo "REMINDER: copy it to your password manager, then shred -u $PP_FILE"
   elif [ -t 0 ]; then
     read -r -s -p "Offsite backup passphrase (input hidden, empty to skip): " PORTROX_BACKUP_PASSPHRASE
     echo
+    PP_CUSTODY="entered at prompt"
     export PORTROX_BACKUP_PASSPHRASE
   fi
   if [ -n "${PORTROX_BACKUP_PASSPHRASE:-}" ]; then
@@ -75,9 +79,11 @@ node scripts/check-contact.mjs || { echo "BLOCKED: contact details disagree acro
 
 if [ -z "$(git status --porcelain)" ]; then
   echo "RELEASE OK (nothing to commit; suite green; offsite: $OFFSITE_STATE)"
+  echo "passphrase custody: $PP_CUSTODY"
   exit 0
 fi
 git add -A
 git commit -m "$MSG" || exit 1
 git push origin main || exit 1
 echo "RELEASE OK (offsite: $OFFSITE_STATE)"
+echo "passphrase custody: $PP_CUSTODY"

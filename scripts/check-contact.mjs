@@ -1,21 +1,23 @@
 /**
- * Contact consistency across the live site, README and SECURITY.md.
+ * Contact consistency across every site profile and EVERY markdown document.
  *
  * WHY: the portfolio advertised stjl093@gmail.com while README and SECURITY.md
- * advertised sid200ok@duck.com. A visitor and a security researcher would email
- * different addresses, and if the disclosure address is unmonitored, vulnerability
- * reports go nowhere. check-profile.mjs only validated the GitHub link, so this
- * passed silently. The resume also carried two different LinkedIn slugs.
+ * advertised sid200ok@duck.com, so a visitor and a security researcher would
+ * email different addresses and disclosure reports could go unmonitored. The
+ * resume also carried two LinkedIn slugs.
  *
- * Canonical defaults match the resume, README and SECURITY.md, and the GitHub
- * handle. Override either if you prefer the alternatives.
+ * FIX vs previous version: the document list was hand-written
+ * (README, SECURITY, CREDITS). When the bio moved into AUTHOR.md, the file that
+ * actually holds the email, LinkedIn and phone became UNGATED. The list is now
+ * DERIVED from the markdown files present, so any new doc is covered
+ * automatically. Same lesson as MIRROR_MAP: no duplicated enumeration.
  *
  *   node scripts/check-contact.mjs                 # report
- *   node scripts/check-contact.mjs --fix           # align site + docs
- *   node scripts/check-contact.mjs --fix --email you@example.com --linkedin other-slug
- * After --fix, republish so the live site matches: bash scripts/release.sh "..."
+ *   node scripts/check-contact.mjs --fix           # align site profiles
+ *   node scripts/check-contact.mjs --fix --email you@example.com --linkedin slug
+ * Docs are reported, never auto-rewritten: prose is yours to edit.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : d; };
@@ -52,20 +54,32 @@ for (const id of readdirSync('sites')) {
   if (changed) { prof.links = links; writeFileSync(p, JSON.stringify(prof, null, 2) + '\n'); }
 }
 
-for (const f of ['README.md', 'SECURITY.md', 'CREDITS.md']) {
-  if (existsSync(f) === false) continue;
+// DERIVED, not enumerated. Top-level markdown plus docs/.
+const docs = [];
+for (const f of readdirSync('.').sort()) {
+  if (f.endsWith('.md') && statSync(f).isFile()) docs.push(f);
+}
+if (existsSync('docs')) {
+  for (const f of readdirSync('docs').sort()) if (f.endsWith('.md')) docs.push(join('docs', f));
+}
+console.log('scanning ' + docs.length + ' document(s): ' + docs.join(', '));
+for (const f of docs) {
   const s = readFileSync(f, 'utf8');
   const emails = [...new Set((s.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || [])
     .filter(e => !/example\.(com|invalid|org|net)$/.test(e) && !/noreply/.test(e)))];
   const foreign = emails.filter(e => e !== EMAIL);
-  foreign.length === 0 ? ok(f + ' emails consistent (' + (emails.join(', ') || 'none') + ')')
-    : fail(f + ' mentions other address(es): ' + foreign.join(', '));
+  foreign.length === 0 ? ok(f + ' emails (' + (emails.join(', ') || 'none') + ')')
+    : fail(f + ' other address(es): ' + foreign.join(', '));
   const slugs = [...new Set((s.match(/linkedin\.com\/in\/[A-Za-z0-9_-]+/g) || []))];
-  const wrongSlug = slugs.filter(x => x.replace(/\/$/, '') !== ('linkedin.com/in/' + LINKEDIN));
-  wrongSlug.length === 0 ? ok(f + ' LinkedIn consistent')
-    : fail(f + ' other LinkedIn slug(s): ' + wrongSlug.join(', '));
+  const wrong = slugs.filter(x => x.replace(/\/$/, '') !== ('linkedin.com/in/' + LINKEDIN));
+  wrong.length === 0 ? ok(f + ' LinkedIn') : fail(f + ' other LinkedIn slug(s): ' + wrong.join(', '));
+  const handles = [...new Set((s.match(/github\.com\/[A-Za-z0-9_-]+/g) || [])
+    .map(x => x.replace('github.com/', ''))
+    .filter(h => !['sponsors', 'topics', 'features', 'about', 'pricing', 'enterprise'].includes(h)))];
+  const wrongGh = handles.filter(h => h !== GITHUB && !/^(gitleaks|pre-commit|pre-commit-hooks|supabase)$/.test(h));
+  wrongGh.length === 0 ? ok(f + ' GitHub handle') : fail(f + ' other GitHub handle(s): ' + wrongGh.join(', '));
 }
 
 if (bad === 0) console.log('CONTACT OK');
-else console.log('CONTACT BAD=' + bad + (FIX ? '' : '  (run with --fix, then republish)'));
+else console.log('CONTACT BAD=' + bad + (FIX ? '' : '  (run --fix for profiles; edit docs by hand)'));
 process.exit(bad === 0 ? 0 : 1);
