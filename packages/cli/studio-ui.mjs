@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -543,6 +543,17 @@ function vSettings(){
         +'<div class="hr"></div><button class="btn pri" data-act="pnew">'+ic('plus')+'<span>Create project</span></button>'
         :'<p class="note">No projects loaded yet.</p>')
       +'</div>';
+      +'<div class="card" style="margin-top:14px"><header><h3>Database advisors</h3><button class="btn sm" data-act="sbadv">Load advisors</button></header>'
+      +'<p class="desc">Supabase security and performance findings for the default project. ERROR and WARN security lints are launch blockers.</p>'
+      +(S.adv?(function(){
+        function lintTbl(a){ var L=(a&&a.lints)||[]; if(!L.length) return '<p class="note">none</p>';
+          return '<div class="tblwrap"><table><thead><tr><th>Level</th><th>Name</th><th>Detail</th><th>Fix</th></tr></thead><tbody>'
+            +L.map(function(l){return '<tr><td><span class="pill '+(/ERROR/i.test(l.level||'')?'err':(/WARN/i.test(l.level||'')?'warn':'mute'))+'">'+h(l.level||'')+'</span></td>'
+              +'<td class="mono">'+h(l.name||'')+'</td><td>'+h((l.detail||l.description||'').slice(0,180))+'</td>'
+              +'<td class="mono">'+h((l.remediation||'').slice(0,140))+'</td></tr>'}).join('')+'</tbody></table></div>'; }
+        return '<h4 class="sec">Security</h4>'+lintTbl(S.adv.security)+'<div class="hr"></div><h4 class="sec">Performance</h4>'+lintTbl(S.adv.performance);
+      })():'<p class="note">Not loaded.</p>')
+      +'</div>';
   } else if(S.sub==='supabase'){
     /* PORTROX_PROJECT_TAB — real project binding. No deleted endpoints. */
     var pjs=sb.projects||[],ac=sb.account||{};
@@ -579,8 +590,27 @@ function vSettings(){
       +'<tr><td><span class="pill mute">custom</span></td><td class="mono">yourdomain.com</td><td>needs DNS + cname</td></tr>'
       +'</tbody></table></div></div>';
   } else if(S.sub==='ghops'){
+    /* PORTROX_GH_CONN — gh CLI runs in the backend; this is the connect surface. */
+    var G=S.gh||{},A=G.auth||{},repos=G.repos||[],cur=G.repo||'';
+    body='<div class="card"><header><h3>GitHub connection</h3>'
+      +(A.connected?'<span class="pill ok"><span class="dot"></span>'+h(A.login||'connected')+'</span>':'<span class="pill warn">not connected</span>')+'</header>'
+      +'<p class="desc">Every operation below runs the <span class="mono">gh</span> CLI on this machine. Connect with a PAT, or adopt the session you already created in WSL with <span class="mono">gh auth login</span>.</p>'
+      +'<dl class="kv"><dt>gh installed</dt><dd>'+(A.installed?'yes':'NO — install gh first')+'</dd>'
+      +'<dt>Token source</dt><dd>'+h(A.source||'—')+(A.source==='system'?' (your WSL gh session)':'')+'</dd>'
+      +'<dt>Account</dt><dd>'+h(A.login||'—')+'</dd>'
+      +'<dt>Token kind</dt><dd>'+h(A.scope_kind||'—')+'</dd>'
+      +'<dt>Scopes</dt><dd class="mono">'+h((A.scopes||[]).join(', ')||'(fine-grained: per-repo permissions)')+'</dd>'
+      +'<dt>API calls left</dt><dd>'+h(A.rate_remaining||'—')+'</dd></dl>'
+      +(A.error?'<div class="alert err" style="margin-top:12px">'+h(A.error)+'</div>':'')
+      +'<div class="hr"></div>'
+      +'<div class="field"><label>Personal access token</label><div class="pw"><input class="inp mono" id="ghc-tok" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off"></div>'
+      +'<p class="hint">Validated through gh before it is saved. Stored 0600 and passed to gh via the environment — never in a command line.</p></div>'
+      +'<div class="row wrap"><button class="btn pri" data-act="ghconn">Connect</button>'
+      +'<button class="btn" data-act="ghsystem">Use my WSL gh session</button>'
+      +'<button class="btn" data-act="ghstatus">Re-check</button>'
+      +'<button class="btn danger" data-act="ghdisc">Disconnect</button></div>'
+      +'<p class="hint" style="margin-top:10px">Disconnect clears the Portrox token only. Your WSL gh login is preserved.</p></div>';
     /* PORTROX_GH_TAB — the button equivalent of the gh CLI. */
-    var G=S.gh||{},repos=G.repos||[],cur=G.repo||'';
     var opts=repos.map(function(r){return '<option value="'+h(r.full_name)+'"'+(cur===r.full_name?' selected':'')+'>'+h(r.full_name)+(r.private?' (private)':'')+'</option>'}).join('');
     function tbl(cols,rows,cells){ if(!rows||!rows.length) return '<p class="note">none</p>';
       return '<div class="tblwrap"><table><thead><tr>'+cols.map(function(x){return '<th>'+h(x)+'</th>'}).join('')+'</tr></thead><tbody>'
@@ -635,6 +665,24 @@ function vSettings(){
         +'<div class="card" style="margin-top:14px"><header><h3>Actions secrets</h3><button class="btn sm" data-act="ghsec">Refresh</button></header>'
         +'<p class="desc">Names only — values are never readable. Creating a secret needs sealed-box encryption, so use <span class="mono">gh secret set</span> in the terminal for now.</p>'
         +tbl(['Name','Updated','Actions'],S2,function(x){return ['<span class="mono">'+h(x.name)+'</span>',h(x.updated_at||''),'<button class="btn sm danger" data-act="ghsecdel" data-name="'+h(x.name)+'">Delete</button>']})
+        +'</div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>Create Actions secret</h3></header>'
+        +'<p class="desc">gh performs the sealed-box encryption, so creation now works from the UI. The value is sent on stdin and never stored by Portrox.</p>'
+        +'<div class="grid g2"><div class="field"><label>Name</label><input class="inp mono" id="ghs-name" placeholder="SUPABASE_URL"></div>'
+        +'<div class="field"><label>Value</label><div class="pw"><input class="inp mono" id="ghs-val" type="password" autocomplete="off"></div></div></div>'
+        +'<button class="btn pri" data-act="ghsecset">Set secret</button></div>'
+        +'<div class="grid g2" style="margin-top:14px">'
+        +'<div class="card"><header><h3>Actions variables</h3><button class="btn sm" data-act="ghvars">Refresh</button></header>'
+        +tbl(['Name','Value'],G.vars||[],function(x){return ['<span class="mono">'+h(x.name)+'</span>','<span class="mono">'+h(x.value||'')+'</span>']})+'</div>'
+        +'<div class="card"><header><h3>Artifacts</h3><button class="btn sm" data-act="gharts">Refresh</button></header>'
+        +tbl(['Name','Size','Expired'],G.arts||[],function(x){return [h(x.name),h(x.size_in_bytes||0),x.expired?'yes':'no']})+'</div></div>'
+        +'<div class="card" style="margin-top:14px"><header><h3>API console</h3><button class="btn sm" data-act="ghpolicy">Show allowlist</button></header>'
+        +'<p class="desc">Any allowlisted endpoint, executed by gh. Deny-by-default; endpoints starting with <span class="mono">-</span> and code-executing subcommands are refused.</p>'
+        +'<div class="grid g2"><div class="field"><label>Endpoint</label><input class="inp mono" id="gha-ep" placeholder="/rate_limit"></div>'
+        +'<div class="field"><label>Method</label><select class="inp" id="gha-m"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>'
+        +'<button class="btn" data-act="ghcall">Execute</button>'
+        +(G.console?'<pre class="log" style="margin-top:12px;max-height:260px">'+h(JSON.stringify(G.console,null,2))+'</pre>':'')
+        +(G.policy?'<pre class="log" style="margin-top:12px;max-height:200px">'+h(JSON.stringify(G.policy,null,2))+'</pre>':'')
         +'</div>'
         +'<div class="card" style="margin-top:14px"><header><h3>Danger zone</h3></header>'
         +'<p class="desc">Deleting a repository is irreversible and needs the delete_repo scope.</p>'
@@ -725,6 +773,20 @@ function act(a,id,btn){
   if(a==='sbrefresh')return api('/api/supabase/refresh',{}).then(function(c){S.cfg=c;toast('Projects refreshed.','ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='sbforget')return api('/api/supabase/forget',{}).then(function(c){S.cfg=c;toast('Supabase token removed.','info');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='pdefault')return api('/api/supabase/default',{ref:btn.getAttribute('data-ref')}).then(function(c){S.cfg=c;toast('Default project set.','ok');render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghstatus')return api('/api/gh/auth/status',{}).then(function(j){S.gh=S.gh||{};S.gh.auth=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghconn'){var t=$('ghc-tok').value;if(!t){toast('Paste a PAT first','err');return}
+    return api('/api/gh/auth/connect',{token:t}).then(function(j){S.gh=S.gh||{};S.gh.auth=j;$('ghc-tok').value='';toast('Connected as '+j.login,'ok');return load()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghsystem')return api('/api/gh/auth/system',{}).then(function(j){S.gh=S.gh||{};S.gh.auth=j;toast(j.adopted?('Adopted WSL session: '+j.login):'No system gh session found',j.adopted?'ok':'err');return load()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghdisc')return api('/api/gh/auth/disconnect',{}).then(function(j){S.gh=S.gh||{};S.gh.auth=j.status;toast('Portrox token cleared; WSL gh login preserved','info');return load()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghsecset'){var n=$('ghs-name').value,v=$('ghs-val').value;if(!n||!v){toast('Name and value required','err');return}
+    return api('/api/github/secret/set',{repo:S.gh.repo,name:n,value:v}).then(function(j){$('ghs-val').value='';toast('Secret '+j.set+' set','ok');return api('/api/github/secrets',{repo:S.gh.repo}).then(function(s){S.gh.secrets=s;render()})}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ghvars')return api('/api/github/variables',{repo:S.gh.repo}).then(function(j){S.gh.vars=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='gharts')return api('/api/github/artifacts',{repo:S.gh.repo}).then(function(j){S.gh.arts=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghpolicy')return api('/api/gh/policy',{}).then(function(j){S.gh.policy=j;render()}).catch(function(x){toast(x.message,'err')});
+  if(a==='ghcall'){var ep=$('gha-ep').value,m=$('gha-m').value;if(!ep){toast('Endpoint required','err');return}
+    if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
+    return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
+  if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
   if(a==='ghwho')return api('/api/github/whoami',{}).then(function(j){S.gh=S.gh||{};S.gh.who=j;toast('Signed in as '+j.login,'ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='ghrepos')return api('/api/github/repos',{}).then(function(j){S.gh=S.gh||{};S.gh.repos=j;toast(j.length+' repositories','ok');render()}).catch(function(x){toast(x.message,'err')});
   if(a==='ghnew')return ghNewRepo();

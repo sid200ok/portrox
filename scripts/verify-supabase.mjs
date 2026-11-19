@@ -22,11 +22,20 @@ if (!ref) { console.log('FAIL token set but no project loaded'); process.exit(1)
 console.log('project ref: ' + ref);
 const T = () => accessToken();
 
-try { const p = await M.profile(T()); ok('profile reachable (' + (p.email || p.id || 'ok') + ')'); }
-catch (e) { fail('profile: ' + e.message); }
+// Identity probe = organizations. /v1/profile needs a USER-scoped token; a
+// scoped PAT legitimately refuses it, and that is NOT a defect.
+let orgCount = 0;
+try {
+  const o = await M.listOrganizations(T());
+  orgCount = o.length;
+  ok('identity via organizations: ' + o.length + ' (' + o.map(x => x.slug).join(', ') + ')');
+} catch (e) { fail('organizations (identity probe): ' + e.message); }
 
-try { const o = await M.listOrganizations(T()); ok('organizations: ' + o.length + ' (' + o.map(x => x.slug).join(', ') + ')'); }
-catch (e) { fail('organizations: ' + e.message); }
+try { const p = await M.profile(T()); ok('profile reachable (' + (p.email || p.id || 'ok') + ')'); }
+catch (e) {
+  if (/user-scoped|user scoped|insufficient|forbidden/i.test(e.message)) note('profile unavailable with a scoped PAT (expected): ' + e.message);
+  else fail('profile: ' + e.message);
+}
 
 try { const p = await M.listProjects(T()); ok('projects: ' + p.length + ' (' + p.map(x => x.ref + ':' + x.status).join(', ') + ')'); }
 catch (e) { fail('projects: ' + e.message); }
@@ -47,14 +56,28 @@ catch (e) { fail('ensureKey: ' + e.message); }
 
 try {
   const m = await M.listMigrations(T(), ref);
-  ok('migrations recorded server-side: ' + (Array.isArray(m) ? m.length : 0));
+  const remote = (Array.isArray(m) ? m : []).map(x => String(x.version || x.name || '')).filter(Boolean);
+  const { readdirSync } = await import('node:fs');
+  const local = readdirSync('supabase/migrations').filter(f => f.endsWith('.sql')).map(f => f.split('_')[0]);
+  const orphan = remote.filter(v => local.includes(v) === false);
+  ok('migrations recorded server-side: ' + remote.length + ' (local files: ' + local.length + ')');
+  if (orphan.length) note('DRIFT: ' + orphan.length + ' remote version(s) have no local file: ' + orphan.join(', '));
 } catch (e) { note('listMigrations unavailable: ' + e.message); }
 
 for (const [label, fn] of [['security', () => M.securityAdvisor(T(), ref)], ['performance', () => M.performanceAdvisor(T(), ref)]]) {
   try {
     const a = await fn();
-    if (a.unavailable) note(label + ' advisor unavailable: ' + a.error);
-    else ok(label + ' advisor lints: ' + ((a.lints || []).length));
+    if (a.unavailable) { note(label + ' advisor unavailable: ' + a.error); continue; }
+    const lints = a.lints || [];
+    ok(label + ' advisor lints: ' + lints.length);
+    // Report, do not merely count. Security ERROR/WARN are launch blockers.
+    for (const l of lints.slice(0, 12)) {
+      console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' — ' + (l.title || l.description || '').slice(0, 110));
+    }
+    if (label === 'security') {
+      const serious = lints.filter(l => /^(ERROR|WARN)$/i.test(String(l.level || '')));
+      if (serious.length) note(serious.length + ' security finding(s) at ERROR/WARN — review in Studio before launch');
+    }
   } catch (e) { note(label + ' advisor: ' + e.message); }
 }
 

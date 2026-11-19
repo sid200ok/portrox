@@ -12,8 +12,11 @@ const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 const note = m => console.log('NOTE ' + m);
 
-if (maskedConfig().github.configured === false) {
-  note('no GitHub PAT — Studio → Settings → GitHub. Skipping (no verdict).');
+const st = await GH.authStatus();
+if (st.installed === false) { console.log('NOTE gh CLI not installed. Skipping (no verdict).'); process.exit(0); }
+console.log('gh source: ' + st.source + ' connected: ' + st.connected);
+if (st.connected === false) {
+  note('GitHub not connected — Studio → Settings → GitHub ops → Connect, or Use my WSL gh session. Skipping.');
   process.exit(0);
 }
 

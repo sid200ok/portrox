@@ -1,193 +1,255 @@
 /**
- * GitHub operations for the Studio — the button equivalent of `gh`.
- * Reuses config-store.gh() so the PAT is handled in exactly one place.
- * Pages endpoints follow the published REST reference: POST/PUT/DELETE /pages,
- * GET /pages/builds, GET /pages/builds/latest, POST /pages/builds, GET /pages/health.
- * DEFERRED: creating an Actions secret needs libsodium sealed-box encryption
- * against the repo public key. `gh secret set` does that; we do not yet.
+ * GitHub operations for the Studio — every call goes through gh-bridge (gh CLI).
+ * Exported signatures are unchanged so the 23 existing daemon routes keep working.
  */
-import { gh, maskedConfig } from './config-store.mjs';
+import { apiJson, api, apiWithHeaders, assertEndpoint, allowlist, ghInstalled, tokenSource, setSecret, setVariable, GhError } from './gh-bridge.mjs';
+import { loadConfig, saveConfig, maskedConfig } from './config-store.mjs';
 
 const enc = encodeURIComponent;
-const rp = (owner, repo) => '/repos/' + enc(owner) + '/' + enc(repo);
-function needGh() {
-  if (maskedConfig().github.configured === false) throw new Error('GitHub token not set. Studio → Settings → GitHub.');
-}
-function split(full) {
+const rp = full => {
   const p = String(full || '').split('/');
-  if (p.length !== 2 || !p[0] || !p[1]) throw new Error('repo must be "owner/name"');
-  return { owner: p[0], repo: p[1] };
+  if (p.length !== 2 || !p[0] || !p[1]) throw new GhError('repo must be "owner/name"', 0, '');
+  return '/repos/' + enc(p[0]) + '/' + enc(p[1]);
+};
+function needGh() {
+  if (ghInstalled() === false) throw new GhError('gh CLI not installed on this machine. Install it, then retry.', 0, '');
 }
-async function must(res, label) {
-  // 204 / empty 2xx yields null; never hand null to a caller that reads fields.
-  if (res.ok) return res.json === null || res.json === undefined ? {} : res.json;
-  const msg = (res.json && (res.json.message || res.json.error)) || res.text.slice(0, 240) || ('HTTP ' + res.status);
-  const e = new Error(label + ': ' + msg); e.status = res.status; throw e;
+const arr = j => Array.isArray(j) ? j : [];
+
+/* ---------------- connection ---------------- */
+export async function authStatus() {
+  const installed = ghInstalled();
+  const source = tokenSource();
+  if (!installed) return { installed: false, connected: false, source, error: 'gh CLI not installed' };
+  try {
+    const { headers, json } = apiWithHeaders('/user');
+    const scopes = headers['x-oauth-scopes'] || '';
+    return {
+      installed: true, connected: true, source,
+      login: json && json.login, name: json && json.name, type: json && json.type,
+      html_url: json && json.html_url, public_repos: json && json.public_repos,
+      scopes: scopes ? scopes.split(',').map(s => s.trim()).filter(Boolean) : [],
+      scope_kind: scopes ? 'classic' : 'fine-grained',
+      rate_remaining: headers['x-ratelimit-remaining'] || null
+    };
+  } catch (e) {
+    return { installed: true, connected: false, source, error: e.message };
+  }
 }
 
+/** Validate a candidate PAT through gh, then persist. Token never touches argv. */
+export async function connect({ token }) {
+  needGh();
+  const t = String(token || '').trim();
+  if (!t) throw new GhError('token required', 0, '');
+  if (/^(ghp_|github_pat_)/.test(t) === false) throw new GhError('expected a GitHub PAT (ghp_… or github_pat_…)', 0, '');
+  const c = loadConfig();
+  const prev = c.github.token;
+  c.github.token = t; saveConfig(c);                 // gh reads it from ENV
+  try {
+    const st = await authStatus();
+    if (!st.connected) throw new GhError(st.error || 'token rejected', 0, '');
+    c.github.login = st.login || '';
+    c.github.scopes = (st.scopes || []).join(', ');
+    saveConfig(c);
+    return { ...st, saved: true };
+  } catch (e) {
+    const r = loadConfig(); r.github.token = prev; saveConfig(r);   // roll back
+    throw e;
+  }
+}
+
+/** Adopt the machine's existing gh session (the WSL login). Non-destructive. */
+export async function useSystemSession() {
+  needGh();
+  const c = loadConfig();
+  c.github.token = ''; saveConfig(c);
+  const st = await authStatus();
+  if (st.connected) { c.github.login = st.login || ''; c.github.scopes = (st.scopes || []).join(', '); saveConfig(c); }
+  return { ...st, adopted: st.connected };
+}
+
+/** Clears the Portrox token only. The system gh session is left untouched. */
+export async function disconnect() {
+  const c = loadConfig();
+  c.github.token = ''; c.github.login = ''; c.github.scopes = ''; saveConfig(c);
+  return { disconnected: true, system_session_preserved: true, status: await authStatus() };
+}
+
+export async function rateLimit() { needGh(); return apiJson('/rate_limit'); }
+export function policy() { return allowlist(); }
+/** Constrained console: any allowlisted endpoint/method. */
+export async function console_({ endpoint, method, body }) {
+  needGh();
+  assertEndpoint(endpoint, method || 'GET');
+  return apiJson(endpoint, { method: method || 'GET', body });
+}
+
+/* ---------------- identity + repositories ---------------- */
 export async function whoami() {
   needGh();
-  const j = await must(await gh('/user'), 'user');
+  const j = apiJson('/user');
   return { login: j.login, name: j.name, type: j.type, public_repos: j.public_repos };
 }
 export async function listRepos() {
   needGh();
-  const j = await must(await gh('/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member'), 'repos');
-  return (Array.isArray(j) ? j : []).map(x => ({
+  const j = apiJson('/user/repos', { query: { per_page: 100, sort: 'updated', affiliation: 'owner,collaborator,organization_member' } });
+  return arr(j).map(x => ({
     full_name: x.full_name, name: x.name, owner: x.owner && x.owner.login,
     private: x.private, fork: x.fork, archived: x.archived,
     default_branch: x.default_branch, html_url: x.html_url,
     has_pages: x.has_pages, pushed_at: x.pushed_at, description: x.description
   }));
 }
-export async function getRepo(full) { needGh(); const { owner, repo } = split(full); return must(await gh(rp(owner, repo)), 'repo'); }
+export async function getRepo(full) { needGh(); return apiJson(rp(full)); }
 export async function createRepo({ name, owner, description, private: priv }) {
   needGh();
-  const me = maskedConfig().github.login;
-  const body = { name: String(name || '').trim(), description: description || 'Portfolio published by Portrox',
-    private: priv === true, has_issues: false, has_wiki: false, auto_init: false };
-  if (!body.name) throw new Error('repo name required');
+  const n = String(name || '').trim();
+  if (!n) throw new GhError('repo name required', 0, '');
+  const me = (await whoami()).login;
+  const body = { name: n, description: description || 'Portfolio published by Portrox', private: priv === true, has_issues: false, has_wiki: false, auto_init: false };
   const target = (owner && owner !== me) ? '/orgs/' + enc(owner) + '/repos' : '/user/repos';
-  const j = await must(await gh(target, { method: 'POST', body }), 'create repo');
+  const j = apiJson(target, { method: 'POST', body });
   return { full_name: j.full_name, html_url: j.html_url, default_branch: j.default_branch, owner: (j.owner && j.owner.login) || owner || me };
 }
 export async function deleteRepo(full, confirm) {
   needGh();
-  if (confirm !== full) throw new Error('confirmation must equal the full repo name');
-  const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo), { method: 'DELETE' });
-  if (r.ok || r.status === 204) return { deleted: full };
-  if (r.status === 403) throw new Error('delete needs the delete_repo scope (classic PAT) or Administration:write');
-  if (r.status === 404) throw new Error('repo not found, or the token cannot see it: ' + full);
-  return must(r, 'delete repo');
+  if (confirm !== full) throw new GhError('confirmation must equal the full repo name', 0, '');
+  api(rp(full), { method: 'DELETE' });
+  return { deleted: full };
 }
 export async function listBranches(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/branches?per_page=100'), 'branches');
-  return (Array.isArray(j) ? j : []).map(b => ({ name: b.name, sha: b.commit && b.commit.sha, protected: b.protected }));
+  needGh();
+  return arr(apiJson(rp(full) + '/branches', { query: { per_page: 100 } }))
+    .map(b => ({ name: b.name, sha: b.commit && b.commit.sha, protected: b.protected }));
 }
 export async function listCommits(full, branch) {
-  needGh(); const { owner, repo } = split(full);
-  const q = branch ? '?per_page=20&sha=' + enc(branch) : '?per_page=20';
-  const j = await must(await gh(rp(owner, repo) + '/commits' + q), 'commits');
-  return (Array.isArray(j) ? j : []).map(c => ({
-    sha: c.sha, message: (c.commit && c.commit.message || '').split('\n')[0],
-    author: c.commit && c.commit.author && c.commit.author.name,
-    date: c.commit && c.commit.author && c.commit.author.date, html_url: c.html_url
-  }));
+  needGh();
+  return arr(apiJson(rp(full) + '/commits', { query: { per_page: 20, sha: branch || undefined } }))
+    .map(c => ({ sha: c.sha, message: ((c.commit && c.commit.message) || '').split('\n')[0],
+      author: c.commit && c.commit.author && c.commit.author.name,
+      date: c.commit && c.commit.author && c.commit.author.date, html_url: c.html_url }));
 }
 export async function listReleases(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/releases?per_page=10'), 'releases');
-  return (Array.isArray(j) ? j : []).map(r => ({ tag: r.tag_name, name: r.name, draft: r.draft, prerelease: r.prerelease, published_at: r.published_at, html_url: r.html_url }));
+  needGh();
+  return arr(apiJson(rp(full) + '/releases', { query: { per_page: 10 } }))
+    .map(r => ({ tag: r.tag_name, name: r.name, draft: r.draft, prerelease: r.prerelease, published_at: r.published_at, html_url: r.html_url }));
 }
 
+/* ---------------- Pages ---------------- */
 export async function pagesStatus(full) {
-  needGh(); const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/pages');
-  if (r.status === 404) return { enabled: false };
-  const j = await must(r, 'pages');
-  return { enabled: true, status: j.status, build_type: j.build_type, source: j.source, cname: j.cname,
-    https_enforced: j.https_enforced, html_url: j.html_url, protected_domain_state: j.protected_domain_state,
-    https_certificate: j.https_certificate };
+  needGh();
+  try {
+    const j = apiJson(rp(full) + '/pages');
+    return { enabled: true, status: j.status, build_type: j.build_type, source: j.source, cname: j.cname,
+      https_enforced: j.https_enforced, html_url: j.html_url, protected_domain_state: j.protected_domain_state,
+      https_certificate: j.https_certificate };
+  } catch (e) { if (Number(e.status) === 404) return { enabled: false }; throw e; }
 }
 export async function pagesEnable(full, { branch, path, build_type }) {
-  needGh(); const { owner, repo } = split(full);
+  needGh();
   const body = { build_type: build_type === 'workflow' ? 'workflow' : 'legacy',
     source: { branch: branch || 'gh-pages', path: path === '/docs' ? '/docs' : '/' } };
-  const r = await gh(rp(owner, repo) + '/pages', { method: 'POST', body });
-  if (r.status === 409) return pagesUpdate(full, { branch: body.source.branch, path: body.source.path, build_type: body.build_type });
-  await must(r, 'pages enable');
+  try { apiJson(rp(full) + '/pages', { method: 'POST', body }); }
+  catch (e) { if (Number(e.status) === 409) return pagesUpdate(full, { branch: body.source.branch, path: body.source.path, build_type: body.build_type }); throw e; }
   return pagesStatus(full);
 }
 export async function pagesUpdate(full, { branch, path, build_type, cname, https_enforced }) {
-  needGh(); const { owner, repo } = split(full);
+  needGh();
   const body = {};
   if (build_type) body.build_type = build_type === 'workflow' ? 'workflow' : 'legacy';
-  // GitHub ignores `source` when build_type is workflow; do not imply otherwise.
   if (branch && body.build_type !== 'workflow') body.source = { branch, path: path === '/docs' ? '/docs' : '/' };
   if (cname !== undefined) body.cname = cname === '' ? null : String(cname);
   if (https_enforced !== undefined) body.https_enforced = https_enforced === true;
-  const r = await gh(rp(owner, repo) + '/pages', { method: 'PUT', body });
-  if (r.ok || r.status === 204) return pagesStatus(full);
-  return must(r, 'pages update');
+  api(rp(full) + '/pages', { method: 'PUT', body });
+  return pagesStatus(full);
 }
 export async function pagesDisable(full, confirm) {
   needGh();
-  if (confirm !== full) throw new Error('confirmation must equal the full repo name');
-  const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/pages', { method: 'DELETE' });
-  if (r.ok || r.status === 204) return { enabled: false };
-  return must(r, 'pages disable');
+  if (confirm !== full) throw new GhError('confirmation must equal the full repo name', 0, '');
+  api(rp(full) + '/pages', { method: 'DELETE' });
+  return { enabled: false };
 }
 export async function pagesBuilds(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/pages/builds?per_page=10'), 'pages builds');
-  return (Array.isArray(j) ? j : []).map(b => ({ status: b.status, commit: b.commit, duration: b.duration, created_at: b.created_at, error: b.error && b.error.message }));
+  needGh();
+  return arr(apiJson(rp(full) + '/pages/builds', { query: { per_page: 10 } }))
+    .map(b => ({ status: b.status, commit: b.commit, duration: b.duration, created_at: b.created_at, error: b.error && b.error.message }));
 }
 export async function pagesLatestBuild(full) {
-  needGh(); const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/pages/builds/latest');
-  if (r.status === 404) return { none: true };
-  const b = await must(r, 'latest build');
-  return { status: b.status, commit: b.commit, duration: b.duration, created_at: b.created_at, error: b.error && b.error.message };
+  needGh();
+  try {
+    const b = apiJson(rp(full) + '/pages/builds/latest');
+    return { status: b.status, commit: b.commit, duration: b.duration, created_at: b.created_at, error: b.error && b.error.message };
+  } catch (e) { if (Number(e.status) === 404) return { none: true }; throw e; }
 }
 export async function pagesRequestBuild(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/pages/builds', { method: 'POST' }), 'request build');
+  needGh();
+  const j = apiJson(rp(full) + '/pages/builds', { method: 'POST' });
   return { status: j.status, url: j.url };
 }
 export async function pagesDnsHealth(full) {
-  needGh(); const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/pages/health');
-  if (r.status === 202) return { pending: true, note: 'async check started; re-run in a few seconds' };
-  if (r.status === 422) return { no_cname: true };
-  if (r.status === 400) return { unavailable: true, note: 'custom domains not available for this Pages site' };
-  return must(r, 'dns health');
+  needGh();
+  try { return apiJson(rp(full) + '/pages/health'); }
+  catch (e) {
+    const s = Number(e.status);
+    if (s === 202) return { pending: true, note: 'async check started; re-run in a few seconds' };
+    if (s === 422) return { no_cname: true };
+    if (s === 400) return { unavailable: true, note: 'custom domains not available for this Pages site' };
+    throw e;
+  }
 }
 
+/* ---------------- Actions ---------------- */
 export async function listWorkflows(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/actions/workflows?per_page=100'), 'workflows');
-  return (j && j.workflows || []).map(w => ({ id: w.id, name: w.name, path: w.path, state: w.state, html_url: w.html_url }));
+  needGh();
+  const j = apiJson(rp(full) + '/actions/workflows', { query: { per_page: 100 } });
+  return (j.workflows || []).map(w => ({ id: w.id, name: w.name, path: w.path, state: w.state, html_url: w.html_url }));
 }
 export async function workflowSetState(full, file, enable) {
-  needGh(); const { owner, repo } = split(full);
+  needGh();
   const verb = enable ? 'enable' : 'disable';
-  const r = await gh(rp(owner, repo) + '/actions/workflows/' + enc(file) + '/' + verb, { method: 'PUT' });
-  if (r.ok || r.status === 204) return { file, state: enable ? 'active' : 'disabled_manually' };
-  return must(r, 'workflow ' + verb);
+  api(rp(full) + '/actions/workflows/' + enc(file) + '/' + verb, { method: 'PUT' });
+  return { file, state: enable ? 'active' : 'disabled_manually' };
 }
 export async function workflowDispatch(full, file, ref, inputs) {
-  needGh(); const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/actions/workflows/' + enc(file) + '/dispatches', { method: 'POST', body: { ref: ref || 'main', inputs: inputs || {} } });
-  if (r.ok || r.status === 204) return { dispatched: file, ref: ref || 'main' };
-  return must(r, 'dispatch');
+  needGh();
+  api(rp(full) + '/actions/workflows/' + enc(file) + '/dispatches', { method: 'POST', body: { ref: ref || 'main', inputs: inputs || {} } });
+  return { dispatched: file, ref: ref || 'main' };
 }
 export async function listRuns(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/actions/runs?per_page=20'), 'runs');
-  return (j && j.workflow_runs || []).map(r => ({ id: r.id, name: r.name, status: r.status, conclusion: r.conclusion,
+  needGh();
+  const j = apiJson(rp(full) + '/actions/runs', { query: { per_page: 20 } });
+  return (j.workflow_runs || []).map(r => ({ id: r.id, name: r.name, status: r.status, conclusion: r.conclusion,
     head_branch: r.head_branch, head_sha: r.head_sha, event: r.event, created_at: r.created_at, html_url: r.html_url }));
 }
 export async function runAction(full, id, action) {
   needGh();
-  if (!['cancel', 'rerun', 'rerun-failed-jobs'].includes(action)) throw new Error('unsupported run action');
-  const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/actions/runs/' + enc(String(id)) + '/' + action, { method: 'POST' });
-  if (r.ok || r.status === 202 || r.status === 204) return { id, action, accepted: true };
-  return must(r, 'run ' + action);
+  if (['cancel', 'rerun', 'rerun-failed-jobs'].includes(action) === false) throw new GhError('unsupported run action', 0, '');
+  if (/^\d+$/.test(String(id)) === false) throw new GhError('run id must be numeric', 0, '');
+  api(rp(full) + '/actions/runs/' + id + '/' + action, { method: 'POST' });
+  return { id, action, accepted: true };
 }
 export async function listSecretNames(full) {
-  needGh(); const { owner, repo } = split(full);
-  const j = await must(await gh(rp(owner, repo) + '/actions/secrets?per_page=100'), 'secrets');
-  return (j && j.secrets || []).map(s => ({ name: s.name, created_at: s.created_at, updated_at: s.updated_at }));
+  needGh();
+  const j = apiJson(rp(full) + '/actions/secrets', { query: { per_page: 100 } });
+  return (j.secrets || []).map(s => ({ name: s.name, created_at: s.created_at, updated_at: s.updated_at }));
 }
 export async function deleteSecret(full, name, confirm) {
   needGh();
-  if (confirm !== name) throw new Error('confirmation must equal the secret name');
-  const { owner, repo } = split(full);
-  const r = await gh(rp(owner, repo) + '/actions/secrets/' + enc(name), { method: 'DELETE' });
-  if (r.ok || r.status === 204) return { deleted: name };
-  return must(r, 'delete secret');
+  if (confirm !== name) throw new GhError('confirmation must equal the secret name', 0, '');
+  api(rp(full) + '/actions/secrets/' + enc(name), { method: 'DELETE' });
+  return { deleted: name };
+}
+/** Now possible because gh performs the sealed-box encryption. Value on stdin. */
+export async function putSecret(full, name, value) { needGh(); return setSecret(full, name, value); }
+export async function listVariables(full) {
+  needGh();
+  const j = apiJson(rp(full) + '/actions/variables', { query: { per_page: 100 } });
+  return (j.variables || []).map(v => ({ name: v.name, value: v.value, created_at: v.created_at }));
+}
+export async function putVariable(full, name, value) { needGh(); return setVariable(full, name, value); }
+export async function listArtifacts(full) {
+  needGh();
+  const j = apiJson(rp(full) + '/actions/artifacts', { query: { per_page: 20 } });
+  return (j.artifacts || []).map(a => ({ id: a.id, name: a.name, size_in_bytes: a.size_in_bytes, expired: a.expired, created_at: a.created_at }));
 }

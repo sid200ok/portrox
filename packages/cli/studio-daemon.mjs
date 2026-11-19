@@ -356,6 +356,29 @@ const server = createServer(async (req, res) => {
       }
 
       /* ---------- GitHub operations: the button equivalent of gh ---------- */
+      /* ---------- GitHub connection (gh CLI in the backend) ---------- */
+      if (p === '/api/gh/auth/status') { try { return json(200, await GH.authStatus()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/auth/connect') { try { return json(200, await GH.connect(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/auth/system') { try { return json(200, await GH.useSystemSession()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/auth/disconnect') { try { return json(200, await GH.disconnect()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/rate') { try { return json(200, await GH.rateLimit()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/policy') { try { return json(200, GH.policy()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/gh/console') { try { return json(200, await GH.console_(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/secret/set') { try { return json(200, await GH.putSecret(b.repo, b.name, b.value)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/variables') { try { return json(200, await GH.listVariables(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/variable/set') { try { return json(200, await GH.putVariable(b.repo, b.name, b.value)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/artifacts') { try { return json(200, await GH.listArtifacts(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      /* ---------- Supabase advisors: report, do not merely count ---------- */
+      if (p === '/api/supabase/advisors') {
+        try {
+          const ref = String(b.ref || loadConfig().supabase.default_project_ref || '');
+          if (!projectRecord(ref)) return json(404, { error: 'unknown project ref' });
+          const sec = await M.securityAdvisor(accessToken(), ref);
+          const perf = await M.performanceAdvisor(accessToken(), ref);
+          return json(200, { ref, security: sec, performance: perf });
+        } catch (e) { return json(400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/github/whoami') { try { return json(200, await GH.whoami()); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/github/repos') { try { return json(200, await GH.listRepos()); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/github/repo/get') { try { return json(200, await GH.getRepo(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }

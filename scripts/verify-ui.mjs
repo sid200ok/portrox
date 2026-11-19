@@ -61,6 +61,12 @@ try {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }
   app.includes('gh-repo') ? ok('repository selector present') : fail('repository selector missing');
+  app.includes('PORTROX_GH_CONN') ? ok('GitHub connection panel present') : fail('connection panel missing');
+  for (const ep of ['/api/gh/auth/status','/api/gh/auth/connect','/api/gh/auth/system','/api/gh/auth/disconnect','/api/github/secret/set','/api/gh/console','/api/supabase/advisors']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  app.includes('ghc-tok') ? ok('PAT field present') : fail('PAT field missing');
+  app.includes('sbadv') ? ok('advisor load action present') : fail('advisor action missing');
   app.includes('/api/config/test-db') ? fail('dead endpoint /api/config/test-db still referenced') : ok('no dead test-db endpoint');
   app.includes('/api/config/supabase') ? fail('dead endpoint /api/config/supabase still referenced') : ok('no dead config/supabase endpoint');
   app.includes('db_configured') ? fail('removed field db_configured still read') : ok('no removed db_configured field');
