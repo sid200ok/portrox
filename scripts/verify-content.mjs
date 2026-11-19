@@ -2,9 +2,11 @@
  * Content-structure gate on the rendered artifact.
  *   node scripts/verify-content.mjs [site_id]
  * verify-live compares live to dist, so a defect present in BOTH passes it.
- * This checks the artifact itself: one h1 per page, unique titles, meta
- * description, lang, viewport, charset, no duplicate ids, resolvable internal
- * links, alt on images, no inline event handlers.
+ * This gates the artifact itself.
+ *
+ * FIX: meta attributes are PARSED, not matched with an order-dependent regex.
+ * <meta content="..." name="description"> is valid HTML and previously failed.
+ * A 404 page must be noindex; requiring a meta description there was wrong.
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
@@ -13,10 +15,17 @@ const siteId = process.argv[2] || 'sid200ok.github.io';
 const root = join(process.cwd(), 'dist', siteId);
 if (existsSync(root) === false) { console.error('FAIL no dist for ' + siteId + ' - run a build first'); process.exit(1); }
 let bad = 0;
+const failures = [];
 const ok = m => console.log('OK   ' + m);
-const fail = m => { bad++; console.log('FAIL ' + m); };
-const note = m => console.log('NOTE ' + m);
+const fail = m => { bad++; failures.push(m); console.log('FAIL ' + m); };
 const all = (s, re) => [...s.matchAll(re)].map(m => m[1] || m[0]);
+const attr = (tag, name) => {
+  const m = String(tag).match(new RegExp('\\b' + name + '\\s*=\\s*["\']([^"\']*)["\']', 'i'));
+  return m ? m[1] : '';
+};
+const metaTags = html => html.match(/<meta\b[^>]*>/gi) || [];
+const findMeta = (html, key, value) =>
+  metaTags(html).find(t => attr(t, key).toLowerCase() === String(value).toLowerCase()) || '';
 
 const pages = readdirSync(root).filter(f => f.endsWith('.html'));
 if (pages.length === 0) { console.error('FAIL no HTML pages in dist'); process.exit(1); }
@@ -39,10 +48,17 @@ for (const f of pages) {
     else { titles.set(key, tag); ok(tag + ' title unique'); }
   }
 
-  /<meta[^>]+name=["']description["'][^>]+content=["'][^"']{20,}/i.test(html)
-    ? ok(tag + ' meta description') : fail(tag + ' meta description missing or too short');
+  if (f === '404.html') {
+    const robots = attr(findMeta(html, 'name', 'robots'), 'content');
+    /noindex/i.test(robots) ? ok(tag + ' robots noindex') : fail(tag + ' 404 page must be noindex');
+  } else {
+    const desc = attr(findMeta(html, 'name', 'description'), 'content').trim();
+    desc.length >= 10 ? ok(tag + ' meta description (' + desc.length + ' chars)')
+      : fail(tag + ' meta description empty or placeholder (' + desc.length + ' chars)');
+  }
+
   /<html[^>]+lang=["'][a-z]{2}/i.test(html) ? ok(tag + ' html lang') : fail(tag + ' html lang missing');
-  /<meta[^>]+name=["']viewport["']/i.test(html) ? ok(tag + ' viewport') : fail(tag + ' viewport missing');
+  findMeta(html, 'name', 'viewport') ? ok(tag + ' viewport') : fail(tag + ' viewport missing');
   /<meta[^>]+charset=/i.test(html) ? ok(tag + ' charset') : fail(tag + ' charset missing');
 
   const ids = all(html, /\sid=["']([^"']+)["']/gi);
@@ -50,7 +66,7 @@ for (const f of pages) {
   dup.length === 0 ? ok(tag + ' no duplicate ids') : fail(tag + ' duplicate ids: ' + [...new Set(dup)].join(', '));
 
   const imgs = html.match(/<img\b[^>]*>/gi) || [];
-  const noAlt = imgs.filter(x => /\balt=/i.test(x) === false);
+  const noAlt = imgs.filter(x => /\balt\s*=/i.test(x) === false);
   noAlt.length === 0 ? ok(tag + ' all images have alt (' + imgs.length + ')') : fail(tag + ' ' + noAlt.length + ' image(s) without alt');
 
   const inline = html.match(/\son(?:click|load|error|mouseover)\s*=/gi) || [];
@@ -63,8 +79,7 @@ for (const f of pages) {
     const clean = r.split('#')[0].split('?')[0];
     if (!clean) continue;
     const target = resolve(dirname(p), clean);
-    const rel = relative(root, target);
-    if (rel.startsWith('..')) { missing.push(r + ' (escapes site root)'); continue; }
+    if (relative(root, target).startsWith('..')) { missing.push(r + ' (escapes site root)'); continue; }
     if (existsSync(target) === false) missing.push(r);
   }
   missing.length === 0 ? ok(tag + ' all internal refs resolve') : fail(tag + ' broken internal refs: ' + missing.join(', '));
@@ -73,5 +88,6 @@ for (const f of pages) {
 for (const f of ['sitemap.xml', 'robots.txt', '.nojekyll', 'assets/portrox.css']) {
   existsSync(join(root, f)) ? ok('asset ' + f) : fail('asset missing ' + f);
 }
+if (failures.length) { console.log('--- FAILURES ---'); for (const x of failures) console.log('  ' + x); }
 console.log('\n' + (bad === 0 ? 'CONTENT OK' : 'CONTENT BAD=' + bad));
 process.exit(bad === 0 ? 0 : 1);

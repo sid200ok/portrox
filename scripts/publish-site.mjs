@@ -79,6 +79,9 @@ writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
 const { renderSite } = await import(join(REPO, 'packages/core/render.mjs'));
 const outDir = join(REPO, 'dist', siteId);
 const rendered = await renderSite(join(REPO, 'sites', siteId), outDir);
+const { normalizeDir } = await import(join(REPO, 'packages/core/html-normalize.mjs'));
+const nz = normalizeDir(join(REPO, 'dist', siteId));
+for (const d of nz.details) note('normalized ' + d);
 ok('rendered ' + rendered.pages + ' pages, ' + rendered.bytes + ' bytes, forms=' + (cfg.supabase.url ? 'on' : 'off'));
 
 /* 3. register */

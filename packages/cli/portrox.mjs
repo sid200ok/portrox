@@ -228,6 +228,9 @@ async function cmdBuild(which) {
     // Forms predicate is PROJECT readiness, not account-token presence.
     if (cfg.supabase.url === '') warn(t + ': no publishable key for project ' + (ref || '(unbound)') + ' — forms rendered DISABLED');
     const r = await renderSite(join(sitesDir, t), join(REPO, 'dist', t));
+    const { normalizeDir } = await import(join(REPO, 'packages/core/html-normalize.mjs'));
+    const nz = normalizeDir(join(REPO, 'dist', t));
+    for (const d of nz.details) say('  ' + C.d + 'normalized ' + d + C.x);
     ok('built ' + t + ' -> dist/' + t + ' (' + r.pages + ' pages, ' + r.bytes + ' bytes, project=' + (ref || 'none') + ', forms=' + (cfg.supabase.url ? 'on' : 'off') + ')');
   }
 }

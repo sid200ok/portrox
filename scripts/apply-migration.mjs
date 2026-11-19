@@ -21,7 +21,7 @@ const ref = process.argv[3] || c.supabase.default_project_ref;
 if (!ref || !c.supabase.access_token) { console.error('FAIL no project or token'); process.exit(1); }
 const T = () => accessToken();
 
-const POLICY_SQL = "select policyname, tablename, (coalesce(qual,'') || ' ' || coalesce(with_check,'')) like '%select auth.uid()%' as wrapped, (coalesce(qual,'') || ' ' || coalesce(with_check,'')) like '%auth.uid()%' as uses from pg_policies where schemaname='public' order by tablename, policyname";
+const POLICY_SQL = "select policyname, tablename, (coalesce(qual,'') || ' ' || coalesce(with_check,'')) ilike '%select auth.uid()%' as wrapped, (coalesce(qual,'') || ' ' || coalesce(with_check,'')) ilike '%auth.uid()%' as uses from pg_policies where schemaname='public' order by tablename, policyname";
 const FK_SQL = "select count(*)::text as n from pg_constraint c join pg_class r on r.oid=c.conrelid join pg_namespace ns on ns.oid=r.relnamespace where c.contype='f' and ns.nspname='public' and not exists (select 1 from pg_index i where i.indrelid=c.conrelid and (i.indkey::smallint[])[0:array_length(c.conkey,1)-1]=c.conkey)";
 
 async function state(label) {
