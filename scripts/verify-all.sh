@@ -50,6 +50,12 @@ esac
 step "rpc (positive)"
 node scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
 
+step "database audit (grants, RLS, future booking)"
+node scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+
+step "restore proof (scratch schema)"
+node scripts/restore-db.mjs || stop "latest backup is not restorable"
+
 step "probe cleanup"
 node scripts/clean-probes.mjs || stop "probe cleanup failed - production inbox is accumulating test rows"
 
