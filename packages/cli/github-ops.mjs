@@ -24,8 +24,19 @@ export async function authStatus() {
   try {
     const { headers, json } = apiWithHeaders('/user');
     const scopes = headers['x-oauth-scopes'] || '';
+    // A2: adopting the system gh session stores no token, so `login` was never
+    // populated and every consumer reported GITHUB EMPTY while calls succeeded.
+    // Record identity only — never a secret.
+    const login = (json && json.login) || '';
+    if (login) {
+      const cur = loadConfig();
+      const want = scopes ? scopes.split(',').map(s => s.trim()).filter(Boolean).join(', ') : '';
+      if (cur.github.login !== login || cur.github.scopes !== want) {
+        cur.github.login = login; cur.github.scopes = want; saveConfig(cur);
+      }
+    }
     return {
-      installed: true, connected: true, source,
+      installed: true, connected: true, source: tokenSource(),
       login: json && json.login, name: json && json.name, type: json && json.type,
       html_url: json && json.html_url, public_repos: json && json.public_repos,
       scopes: scopes ? scopes.split(',').map(s => s.trim()).filter(Boolean) : [],

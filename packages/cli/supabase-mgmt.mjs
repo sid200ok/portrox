@@ -56,7 +56,8 @@ export const HEALTH_SERVICE_ENUM = ['auth', 'db', 'db_postgres_user', 'pooler', 
 export const HEALTH_SERVICES = ['db', 'auth', 'rest', 'storage'];
 export const BOOTSTRAP_FILES = [
   '20261117220000_portrox_init.sql',
-  '20261118230000_studio_owner.sql'
+  '20261118230000_studio_owner.sql',
+  '20261119070000_harden_definer.sql'
 ];
 /* PORTROX_NO_HARDCODED_REF: no personal project ref lives in public source.
    full_history is gated by a typed confirmation of the target ref instead. */

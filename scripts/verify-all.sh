@@ -37,7 +37,7 @@ echo "default password active: $WEAK"
 [ "$WEAK" = "no" ] || stop "Studio password is still the default. Settings -> Security -> Change credentials, set a new PASSWORD (a username change does not count)."
 
 step "config precondition"
-CFG="$(node -e 'import("./packages/cli/config-store.mjs").then(m=>{const c=m.loadConfig();const s=c.supabase||{},g=c.github||{};process.stdout.write([s.access_token?"sb":"-",Object.keys(s.projects||{}).length?"proj":"-",g.token?"gh":"-"].join(" "))})')"
+CFG="$(node -e 'import("./packages/cli/config-store.mjs").then(m=>{const c=m.loadConfig();const s=c.supabase||{},g=c.github||{};process.stdout.write([s.access_token?"sb":"-",Object.keys(s.projects||{}).length?"proj":"-",(g.token||g.login)?"gh":"-"].join(" "))})')"
 echo "config: $CFG"
 case "$CFG" in
   "sb proj gh") echo "all credentials present" ;;
