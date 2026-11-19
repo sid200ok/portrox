@@ -16,7 +16,7 @@ import { mirrorPairs, mirrorFiles } from './sync-mirrors.mjs';
 const need = [
   'package.json', 'package-lock.json', '.gitignore', '.env.example', 'README.md', 'LICENSE',
   '.gitleaks.toml', '.pre-commit-config.yaml',
-  '.github/workflows/security.yml', '.github/workflows/publish-site.yml',
+  '.github/FUNDING.yml', 'SECURITY.md', 'CREDITS.md', '.github/workflows/security.yml', '.github/workflows/publish-site.yml',
   'packages/cli/portrox.mjs', 'packages/cli/studio-daemon.mjs', 'packages/cli/config-store.mjs',
   'packages/cli/auth-store.mjs', 'packages/cli/studio-ui.mjs', 'packages/cli/db-bridge.mjs',
   'packages/cli/supabase-mgmt.mjs', 'packages/cli/github-ops.mjs', 'packages/cli/gh-bridge.mjs',
