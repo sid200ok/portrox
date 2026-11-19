@@ -63,6 +63,16 @@ export function normalizeHtml(html, fileName) {
     }
   }
 
+  // An empty content="" attribute is sloppy output. On a noindex page the
+  // description is pointless, so drop the tag rather than leave it empty.
+  for (const t of (out.match(/<meta\b[^>]*>/gi) || [])) {
+    if (/\bcontent\s*=\s*["']\s*["']/i.test(t) === false) continue;
+    if (/\bname\s*=\s*["']description["']/i.test(t) && is404) {
+      out = out.replace(t, '');
+      changes.push('empty description tag removed');
+    }
+  }
+
   const h1count = (out.match(/<h1[\s>]/gi) || []).length;
   if (h1count === 0) {
     if (/<h2([^>]*)>([\s\S]*?)<\/h2>/i.test(out)) {

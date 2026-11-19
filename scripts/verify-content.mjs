@@ -61,6 +61,9 @@ for (const f of pages) {
   findMeta(html, 'name', 'viewport') ? ok(tag + ' viewport') : fail(tag + ' viewport missing');
   /<meta[^>]+charset=/i.test(html) ? ok(tag + ' charset') : fail(tag + ' charset missing');
 
+  const emptyMeta = metaTags(html).filter(t => /\bcontent\s*=\s*["']\s*["']/i.test(t) && /\b(name|property)\s*=/i.test(t));
+  emptyMeta.length === 0 ? ok(tag + ' no empty meta content') : fail(tag + ' ' + emptyMeta.length + ' meta tag(s) with empty content');
+
   const ids = all(html, /\sid=["']([^"']+)["']/gi);
   const dup = ids.filter((x, i) => ids.indexOf(x) !== i);
   dup.length === 0 ? ok(tag + ' no duplicate ids') : fail(tag + ' duplicate ids: ' + [...new Set(dup)].join(', '));

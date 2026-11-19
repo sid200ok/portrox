@@ -13,3 +13,4 @@ __pycache__/
 supabase/.temp/
 supabase/.branches/
 sites/*/assets/**/originals/
+backups/
