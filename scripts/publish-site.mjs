@@ -86,6 +86,7 @@ const reg = await DB.registerSite(ref, siteId, cfg, ghAuth.login);
 reg.ok ? ok('registered in DB via ' + reg.via) : die('register: ' + reg.error);
 
 /* 4. orphan push */
+let pushedSha = '';
 const tmp = mkdtempSync(join(tmpdir(), 'portrox-pub-'));
 try {
   gitIn(['init', '-q', '-b', branch], tmp);
@@ -95,9 +96,10 @@ try {
   writeFileSync(join(tmp, '.nojekyll'), '');
   gitIn(['add', '-A'], tmp);
   gitIn(['commit', '-q', '-m', 'Publish via Portrox'], tmp);
+  pushedSha = gitIn(['rev-parse', 'HEAD'], tmp);
   gitIn(['remote', 'add', 'origin', auth.url], tmp);
   gitIn(['push', '-q', '--force', 'origin', 'HEAD:refs/heads/' + branch], tmp);
-  ok('pushed orphan ' + branch);
+  ok('pushed orphan ' + branch + ' at ' + pushedSha.slice(0, 8));
 } catch (e) { die(String(e.message)); }
 finally { rmSync(tmp, { recursive: true, force: true }); }
 
@@ -136,7 +138,13 @@ for (let i = 0; i < 24; i++) {
   if (st === 'errored') die('Pages build errored: ' + (build.error || 'unknown'));
 }
 if (!build || build.status !== 'built') note('build not confirmed built yet - re-run verify-live shortly');
-else ok('Pages build built (' + (build.commit || '').slice(0, 8) + ')');
+else {
+  // A2: an older build can satisfy the poll. Prove it built OUR commit.
+  if (pushedSha && String(build.commit || '') !== pushedSha) {
+    die('Pages built ' + String(build.commit || '').slice(0, 8) + ' but we pushed ' + pushedSha.slice(0, 8) + ' - stale build');
+  }
+  ok('Pages built the pushed commit ' + pushedSha.slice(0, 8));
+}
 
 /* 8. best-effort cleanup. NEVER disable GitHub's own Pages builder. */
 for (const wf of await GH.listWorkflows(repoFull)) {

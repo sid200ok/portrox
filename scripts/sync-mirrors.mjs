@@ -13,7 +13,8 @@ const DST = 'packages/database/migrations';
 const MAP = {
   '20261117220000_portrox_init.sql': '0001_init.sql',
   '20261118230000_studio_owner.sql': '0002_studio_owner.sql',
-  '20261119070000_harden_definer.sql': '0003_harden_definer.sql'
+  '20261119070000_harden_definer.sql': '0003_harden_definer.sql',
+  '20261119080000_perf_rls_fk.sql': '0004_perf_rls_fk.sql'
 };
 const CHECK = process.argv.includes('--check');
 mkdirSync(DST, { recursive: true });

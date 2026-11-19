@@ -47,6 +47,12 @@ esac
 step "rpc (positive)"
 node scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
 
+step "probe cleanup"
+node scripts/clean-probes.mjs || stop "probe cleanup failed - production inbox is accumulating test rows"
+
+step "profile handle"
+node scripts/check-profile.mjs || stop "profile links do not match the authenticated GitHub handle"
+
 step "live"
 node scripts/verify-live.mjs || stop "live site is not Portrox output yet — click Publish in the Studio"
 

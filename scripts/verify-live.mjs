@@ -37,6 +37,21 @@ if (isPortrox === false) {
 }
 ok('served by Portrox');
 
+// A3: markers alone cannot distinguish the CURRENT build from an older Portrox
+// build served by a stale CDN. Compare the homepage byte-for-byte with dist.
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const localPath = join(process.cwd(), 'dist', siteId, 'index.html');
+  if (existsSync(localPath) === false) {
+    note('dist index.html absent - run a build first; artifact equality not assessed');
+  } else {
+    const local = readFileSync(localPath, 'utf8');
+    if (local === home.body) ok('live homepage byte-identical to dist (' + local.length + ' chars)');
+    else fail('live homepage DIFFERS from dist (local ' + local.length + ' vs live ' + home.body.length + ' chars) - stale build or CDN cache');
+  }
+}
+
 const want = publicSupabaseFor((c.supabase.default_project_ref || ''));
 const formsExpected = Boolean(want.url);
 

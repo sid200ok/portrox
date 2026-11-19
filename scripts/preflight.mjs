@@ -23,10 +23,10 @@ const need = [
   'packages/core/system-pages/about-website.md',
   'packages/database/migrations/0001_init.sql',
   'packages/database/migrations/0002_studio_owner.sql',
-  'packages/database/migrations/0003_harden_definer.sql',
+  'packages/database/migrations/0003_harden_definer.sql', 'packages/database/migrations/0004_perf_rls_fk.sql',
   'supabase/migrations/20261117220000_portrox_init.sql',
   'supabase/migrations/20261118230000_studio_owner.sql',
-  'supabase/migrations/20261119070000_harden_definer.sql',
+  'supabase/migrations/20261119070000_harden_definer.sql', 'supabase/migrations/20261119080000_perf_rls_fk.sql',
   'scripts/audit-secrets.sh', 'scripts/gitleaks-staged.sh', 'scripts/triage.mjs',
   'scripts/verify-render.mjs', 'scripts/verify-rpc.mjs', 'scripts/verify-daemon.mjs',
   'scripts/verify-ui.mjs', 'scripts/verify-auth.mjs', 'scripts/verify-github.mjs',
@@ -76,7 +76,7 @@ readers.length ? fail('dotenv readers: ' + readers.join(', ')) : ok('no dotenv c
 const PAIRS = [
   ['packages/database/migrations/0001_init.sql', 'supabase/migrations/20261117220000_portrox_init.sql'],
   ['packages/database/migrations/0002_studio_owner.sql', 'supabase/migrations/20261118230000_studio_owner.sql'],
-  ['packages/database/migrations/0003_harden_definer.sql', 'supabase/migrations/20261119070000_harden_definer.sql']
+  ['packages/database/migrations/0003_harden_definer.sql', 'packages/database/migrations/0004_perf_rls_fk.sql', 'supabase/migrations/20261119070000_harden_definer.sql']
 ];
 for (const pair of PAIRS) {
   const a = pair[0], b = pair[1];
