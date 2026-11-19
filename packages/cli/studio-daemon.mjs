@@ -17,6 +17,7 @@ import {
 } from './config-store.mjs';
 import * as M from './supabase-mgmt.mjs';
 import * as DB from './db-bridge.mjs';
+import * as GH from './github-ops.mjs'; // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -221,7 +222,7 @@ async function createProject({ name, organization_slug, region_code, store_passw
   let key = null, schema = null;
   if (wait.ok) {
     key = await DB.ensureKey(ref);
-    schema = await DB.applySchema(ref, REPO, { bootstrap: true });
+    schema = await DB.applySchema(ref, REPO, {});
   }
   if (site_id && listSites().includes(site_id)) bindDatabase(site_id, { mode: 'dedicated', project_ref: ref });
   return {
@@ -331,7 +332,7 @@ const server = createServer(async (req, res) => {
         if (!projectRecord(ref)) return json(404, { error: 'unknown project ref' });
         try {
           if (pk[2] === 'key') return json(200, await DB.ensureKey(ref));
-          if (pk[2] === 'schema') return json(200, await DB.applySchema(ref, REPO, { bootstrap: b.bootstrap === true }));
+          if (pk[2] === 'schema') return json(200, await DB.applySchema(ref, REPO, { full_history: b.full_history === true, confirm: b.confirm || '' }));
           if (pk[2] === 'health') return json(200, await DB.health(ref));
           // PORTROX_RECONCILE: observe migrations applied by the Supabase CLI.
           if (pk[2] === 'reconcile') {
@@ -354,6 +355,31 @@ const server = createServer(async (req, res) => {
         } catch (e) { upsertProject(ref, { last_error: redact(e.message) }); return json(400, { error: redact(e.message) }); }
       }
 
+      /* ---------- GitHub operations: the button equivalent of gh ---------- */
+      if (p === '/api/github/whoami') { try { return json(200, await GH.whoami()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/repos') { try { return json(200, await GH.listRepos()); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/repo/get') { try { return json(200, await GH.getRepo(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/repo/create') { try { return json(200, await GH.createRepo(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/repo/delete') { try { return json(200, await GH.deleteRepo(b.repo, b.confirm)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/branches') { try { return json(200, await GH.listBranches(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/commits') { try { return json(200, await GH.listCommits(b.repo, b.branch)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/releases') { try { return json(200, await GH.listReleases(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/status') { try { return json(200, await GH.pagesStatus(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/enable') { try { return json(200, await GH.pagesEnable(b.repo, b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/update') { try { return json(200, await GH.pagesUpdate(b.repo, b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/disable') { try { return json(200, await GH.pagesDisable(b.repo, b.confirm)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/builds') { try { return json(200, await GH.pagesBuilds(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/latest') { try { return json(200, await GH.pagesLatestBuild(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/build') { try { return json(200, await GH.pagesRequestBuild(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/pages/dns') { try { return json(200, await GH.pagesDnsHealth(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/workflows') { try { return json(200, await GH.listWorkflows(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/workflow/state') { try { return json(200, await GH.workflowSetState(b.repo, b.file, b.enable === true)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/workflow/dispatch') { try { return json(200, await GH.workflowDispatch(b.repo, b.file, b.ref, b.inputs)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/runs') { try { return json(200, await GH.listRuns(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/run/action') { try { return json(200, await GH.runAction(b.repo, b.id, b.action)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/secrets') { try { return json(200, await GH.listSecretNames(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+      if (p === '/api/github/secret/delete') { try { return json(200, await GH.deleteSecret(b.repo, b.name, b.confirm)); } catch (e) { return json(400, { error: redact(e.message) }); } }
+
       if (p === '/api/config/github') { try { return json(200, await setGithub(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/sites') { try { return json(200, createSite(b)); } catch (e) { return json(400, { error: e.message }); } }
 
@@ -369,7 +395,7 @@ const server = createServer(async (req, res) => {
           if (act === 'db') return json(200, bindDatabase(id, b));
           const ref = DB.boundRef(cfgOf(id));
           if (!ref) throw new Error('No Supabase project bound to this site.');
-          if (act === 'db/apply') return json(200, await DB.applySchema(ref, REPO, { bootstrap: b.bootstrap === true }));
+          if (act === 'db/apply') return json(200, await DB.applySchema(ref, REPO, { full_history: b.full_history === true, confirm: b.confirm || '' }));
           if (act === 'db/health') return json(200, await DB.health(ref));
           return json(200, await DB.ensureKey(ref));
         } catch (e) { return json(400, { error: redact(e.message) }); }

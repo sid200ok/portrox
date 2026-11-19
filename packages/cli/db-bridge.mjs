@@ -80,8 +80,9 @@ export async function health(ref) {
   }
 }
 
-export async function applySchema(ref, repoRoot, { bootstrap = false, onStep } = {}) {
-  const r = await M.applySchema(loadConfig().supabase.access_token, ref, repoRoot, { bootstrap, onStep });
+export async function applySchema(ref, repoRoot, { full_history = false, confirm = '', onStep } = {}) {
+  // PORTROX_ONE_CONTRACT: forward full_history + confirm, never a dropped `bootstrap`.
+  const r = await M.applySchema(loadConfig().supabase.access_token, ref, repoRoot, { full_history, confirm, onStep });
   const prev = projectRecord(ref);
   const merged = Array.from(new Set([...((prev && prev.schema_applied) || []), ...r.applied])).sort();
   upsertProject(ref, { schema_applied: merged, schema_via: r.via, schema_at: Date.now(), last_error: '' });

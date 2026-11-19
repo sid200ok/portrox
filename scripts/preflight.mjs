@@ -1,7 +1,7 @@
 /**
- * Preflight. Reads config through the STORE API (loadConfig/maskedConfig), never
- * raw JSON — normalize() migrates the legacy shape in memory, so a raw read
- * reports projects=0 while status reports projects=1.
+ * Preflight. Reads config through the STORE API, never raw JSON.
+ * The .env detector matches QUOTED FILENAMES, not substrings: `process.env`
+ * contains ".env" and produced a false positive on migrate-store.mjs.
  */
 import { existsSync, statSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -14,15 +14,16 @@ const need = [
   '.github/workflows/security.yml','.github/workflows/publish-site.yml',
   'packages/cli/portrox.mjs','packages/cli/studio-daemon.mjs','packages/cli/config-store.mjs',
   'packages/cli/auth-store.mjs','packages/cli/studio-ui.mjs','packages/cli/db-bridge.mjs',
-  'packages/cli/supabase-mgmt.mjs',
+  'packages/cli/supabase-mgmt.mjs','packages/cli/github-ops.mjs',
   'packages/core/render.mjs','packages/core/portrox.css','packages/core/forms.js',
   'packages/core/system-pages/about-website.md',
   'packages/database/migrations/0001_init.sql','packages/database/migrations/0002_studio_owner.sql',
   'supabase/migrations/20261117220000_portrox_init.sql','supabase/migrations/20261118230000_studio_owner.sql',
   'scripts/audit-secrets.sh','scripts/gitleaks-staged.sh','scripts/triage.mjs',
   'scripts/verify-render.mjs','scripts/verify-rpc.mjs','scripts/verify-daemon.mjs',
-  'scripts/verify-ui.mjs','scripts/verify-auth.mjs','scripts/verify-live.mjs','scripts/verify-all.sh',
-  'scripts/supabase-lab.sh','scripts/migrate-store.mjs','docs/UI-TO-TERMINAL.md',
+  'scripts/verify-ui.mjs','scripts/verify-auth.mjs','scripts/verify-github.mjs','scripts/verify-live.mjs','scripts/verify-all.sh',
+  'scripts/supabase-lab.sh','scripts/migrate-store.mjs','scripts/reconcile-schema.mjs','scripts/supabase-ops.mjs',
+  'docs/UI-TO-TERMINAL.md',
   'sites/sid200ok.github.io/site.json','sites/sid200ok.github.io/content/intro.md',
   'sites/sid200ok.github.io/data/profile.json','supabase/config.toml',
 ];
@@ -31,21 +32,33 @@ const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 for (const p of need) existsSync(p) ? ok(p + '  ' + statSync(p).size + 'B') : fail('MISSING ' + p);
 
-// No credential may be read from a .env file.
+/**
+ * A dotenv read is one of:
+ *   readFileSync('.env')  /  "…/.env.local"  /  `.env`
+ *   require('dotenv') / from 'dotenv'
+ *   source .env  /  . ./.env
+ * `process.env` is NOT a file read and must never match.
+ */
+const DOTENV_PATTERNS = [
+  /readFileSync\s*\(\s*['"`][^'"`]*\/?\.env(\.[A-Za-z0-9_-]+)?['"`]/,
+  /readFileSync\s*\(\s*join\s*\([^)]*['"`]\.env(\.[A-Za-z0-9_-]+)?['"`]/,
+  /(?:require\s*\(\s*|from\s+)['"]dotenv['"]/,
+  /(?:^|\n)\s*(?:source|\.)\s+["']?[^\s'"]*\.env(\.[A-Za-z0-9_-]+)?["']?\s*(?:$|\n|#)/
+];
 const readers = [];
 const walk = d => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     if (['node_modules', '.git', 'dist'].includes(e.name)) continue;
     const p = join(d, e.name);
     if (e.isDirectory()) walk(p);
-    else if (/\.(mjs|js|sh)$/.test(e.name)) {
+    else if (/\.(mjs|js|cjs|sh)$/.test(e.name)) {
       const s = readFileSync(p, 'utf8');
-      if (/readFileSync\([^)]*\.env/.test(s) || /source\s+\.?\/?\.env/.test(s)) readers.push(p);
+      if (DOTENV_PATTERNS.some(re => re.test(s))) readers.push(p);
     }
   }
 };
 walk('.');
-readers.length ? fail('.env readers: ' + readers.join(', ')) : ok('no .env credential readers');
+readers.length ? fail('dotenv readers: ' + readers.join(', ')) : ok('no dotenv credential readers');
 
 for (const [a, b] of [
   ['packages/database/migrations/0001_init.sql', 'supabase/migrations/20261117220000_portrox_init.sql'],
@@ -71,7 +84,6 @@ for (const f of ['auth.json', 'config.json', 'state.json']) {
   mode === '600' ? ok(f + ' 0600') : fail(f + ' mode ' + mode);
 }
 
-// STORE API, not raw JSON.
 const c = loadConfig();
 const m = maskedConfig();
 const s = m.supabase;
@@ -81,13 +93,12 @@ console.log('DEFAULT ref=' + (s.project_ref || '-') + ' ready=' + s.project_read
 console.log('GITHUB ' + (m.github.configured ? (m.github.login || 'token set') : 'EMPTY'));
 if (s.project_count === 0) console.log('NOTE no projects loaded — connect the account in the Studio');
 
-// Every site must be EXPLICITLY bound, and its injected creds must match.
 for (const id of readdirSync('sites')) {
   const p = join('sites', id, 'site.json');
   if (existsSync(p) === false) continue;
   const cfg = JSON.parse(readFileSync(p, 'utf8'));
   const ref = cfg.database && cfg.database.project_ref;
-  if (!ref) { fail(id + ': no explicit database.project_ref (implicit binding is drift)'); continue; }
+  if (!ref) { fail(id + ': no explicit database.project_ref'); continue; }
   ok(id + ': bound to ' + ref + ' mode=' + (cfg.database.mode || '?'));
   const want = publicSupabaseFor(ref);
   ((cfg.supabase || {}).url || '') === want.url ? ok(id + ': injected url matches bound project') : fail(id + ': injected url drift');

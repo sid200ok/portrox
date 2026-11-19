@@ -41,7 +41,6 @@ async function opApply(ref) {
   needToken();
   if (!projectRecord(ref)) die('unknown project ref ' + ref + ' — run: create, or Refresh projects in the Studio');
   const r = await DB.applySchema(ref, REPO, {
-    bootstrap: true,
     onStep: (file, state) => console.log('     ' + file + ' → ' + state)
   });
   ok('applied ' + r.count + ' file(s) via ' + r.via);
@@ -128,7 +127,7 @@ async function opCreate() {
   ok('healthy');
   const k = await DB.ensureKey(ref);
   ok('publishable key stored (' + k.kind + ', ends ·' + k.tail + ')');
-  const r = await DB.applySchema(ref, REPO, { bootstrap: true, onStep: (f, s) => console.log('     ' + f + ' → ' + s) });
+  const r = await DB.applySchema(ref, REPO, { onStep: (f, s) => console.log('     ' + f + ' → ' + s) });
   ok('bootstrap applied: ' + r.count + ' file(s) via ' + r.via);
 
   if (siteId) {
