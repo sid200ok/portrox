@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/verify-render.mjs || stop "render verification failed"
 
+step "content structure"
+node scripts/verify-content.mjs || stop "rendered content has structural defects (duplicate h1, broken refs, missing meta)"
+
 step "daemon"
 node scripts/verify-daemon.mjs || stop "daemon verification failed"
 

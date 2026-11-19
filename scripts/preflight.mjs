@@ -41,7 +41,8 @@ const need = [
 ];
 let bad = 0;
 const ok = m => console.log('OK   ' + m);
-const fail = m => { bad++; console.log('FAIL ' + m); };
+const failures = [];
+const fail = m => { bad++; failures.push(m); console.log('FAIL ' + m); };
 const note = m => console.log('NOTE ' + m);
 for (const p of need) existsSync(p) ? ok(p + '  ' + statSync(p).size + 'B') : fail('MISSING ' + p);
 
@@ -121,5 +122,6 @@ for (const id of readdirSync('sites')) {
   const want = publicSupabaseFor(ref);
   ((cfg.supabase || {}).url || '') === want.url ? ok(id + ': injected url matches bound project') : fail(id + ': injected url drift');
 }
+if (failures.length) { console.log('--- FAILURES ---'); for (const f of failures) console.log('  ' + f); }
 console.log(bad === 0 ? 'PREFLIGHT COMPLETE' : 'PREFLIGHT PROBLEMS=' + bad);
 process.exit(bad === 0 ? 0 : 1);

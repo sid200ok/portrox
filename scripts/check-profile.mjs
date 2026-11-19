@@ -29,6 +29,7 @@ for (const id of readdirSync('sites')) {
     prof.links = { ...links, github: want };
     writeFileSync(p, JSON.stringify(prof, null, 2) + '\n');
     console.log('     FIXED -> ' + want);
+    console.log('     REPUBLISH REQUIRED: node scripts/publish-site.mjs ' + id);
     bad--;
   }
 }
