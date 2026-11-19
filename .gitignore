@@ -15,3 +15,4 @@ supabase/.branches/
 sites/*/assets/**/originals/
 backups/
 backups-offsite/
+.content-history/

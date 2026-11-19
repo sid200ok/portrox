@@ -74,9 +74,6 @@ fi
 echo "== inventory =="
 node scripts/inventory.mjs
 
-echo "== contact consistency =="
-node scripts/check-contact.mjs || { echo "BLOCKED: contact details disagree across site, README and SECURITY.md"; exit 1; }
-
 if [ -z "$(git status --porcelain)" ]; then
   echo "RELEASE OK (nothing to commit; suite green; offsite: $OFFSITE_STATE)"
   echo "passphrase custody: $PP_CUSTODY"

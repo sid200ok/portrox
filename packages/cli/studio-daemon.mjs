@@ -17,7 +17,8 @@ import {
 } from './config-store.mjs';
 import * as M from './supabase-mgmt.mjs';
 import * as DB from './db-bridge.mjs';
-import * as GH from './github-ops.mjs'; // PORTROX_GH_ROUTES
+import * as GH from './github-ops.mjs';
+import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -403,6 +404,12 @@ const server = createServer(async (req, res) => {
       if (p === '/api/github/secrets') { try { return json(200, await GH.listSecretNames(b.repo)); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/github/secret/delete') { try { return json(200, await GH.deleteSecret(b.repo, b.name, b.confirm)); } catch (e) { return json(400, { error: redact(e.message) }); } }
 
+      /* ---------- Phase 2: content editor ---------- */
+      if (p === '/api/content/write') {
+        try { return json(200, CS.writeContent(REPO, String(b.site || ''), String(b.file || ''), b.text)); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/config/github') { try { return json(200, await setGithub(b)); } catch (e) { return json(400, { error: redact(e.message) }); } }
       if (p === '/api/sites') { try { return json(200, createSite(b)); } catch (e) { return json(400, { error: e.message }); } }
 
@@ -429,6 +436,14 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      const cm = u.pathname.match(/^\/api\/content\/([^/]+)(?:\/(.+))?$/);
+      if (cm) {
+        const sid = decodeURIComponent(cm[1]);
+        try {
+          if (cm[2] === undefined) return json(200, CS.listContent(REPO, sid));
+          return json(200, CS.readContent(REPO, sid, decodeURIComponent(cm[2])));
+        } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
       if (u.pathname === '/api/sites') return json(200, listSites().map(n => ({ id: n, cfg: cfgOf(n) })));
       const pm = u.pathname.match(/^\/preview\/([^/]+)\/?(.*)$/);
       if (pm) {

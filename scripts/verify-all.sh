@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/verify-render.mjs || stop "render verification failed"
 
+step "content editor round trip"
+node scripts/verify-content-api.mjs || stop "content store does not round-trip safely"
+
 step "content structure"
 node scripts/verify-content.mjs || stop "rendered content has structural defects (duplicate h1, broken refs, missing meta)"
 

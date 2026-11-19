@@ -20,7 +20,7 @@ const need = [
   'packages/cli/portrox.mjs', 'packages/cli/studio-daemon.mjs', 'packages/cli/config-store.mjs',
   'packages/cli/auth-store.mjs', 'packages/cli/studio-ui.mjs', 'packages/cli/db-bridge.mjs',
   'packages/cli/supabase-mgmt.mjs', 'packages/cli/github-ops.mjs', 'packages/cli/gh-bridge.mjs',
-  'packages/cli/git-auth.mjs', 'packages/cli/sql-sanitize.mjs',
+  'packages/cli/git-auth.mjs', 'packages/cli/sql-sanitize.mjs', 'scripts/verify-content-api.mjs', 'packages/cli/content-store.mjs',
   'packages/core/render.mjs', 'packages/core/portrox.css', 'packages/core/forms.js',
   'packages/core/html-normalize.mjs',
   'packages/core/system-pages/about-website.md',
