@@ -1,49 +1,87 @@
-import { readFileSync, existsSync } from 'node:fs';
-const ID = 'sid200ok.github.io';
-const cfg = JSON.parse(readFileSync('sites/' + ID + '/site.json', 'utf8'));
-const BASE = (cfg.live_url || 'https://' + ID).replace(/\/$/, '');
-const wantForms = Boolean(cfg.supabase && cfg.supabase.url);
+/**
+ * Live-site verification. Every content assertion is gated on HTTP 200 so a
+ * GitHub Pages 404 body can never be measured as "real content".
+ * If the homepage is not Portrox output, emit ONE clear verdict and stop,
+ * instead of thirteen cascading failures.
+ *   node scripts/verify-live.mjs [base_url]
+ */
+import { loadConfig, publicSupabaseFor } from '../packages/cli/config-store.mjs';
 
+const c = loadConfig();
+const siteId = 'sid200ok.github.io';
+const base = (process.argv[2] || 'https://' + siteId).replace(/\/$/, '');
 let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
-const get = async p => { const r = await fetch(BASE + p, { redirect: 'follow' }); return { status: r.status, text: await r.text() }; };
+const note = m => console.log('NOTE ' + m);
 
-console.log('LIVE ' + BASE);
-const home = await get('/');
-home.status === 200 ? ok('GET / 200') : fail('GET / ' + home.status);
-
-// Portrox markers must be present; old Tailwind build markers must be gone.
-home.text.includes('assets/portrox.css') ? ok('served by Portrox (portrox.css)') : fail('NOT Portrox output — publish has not run or Pages source is wrong');
-home.text.includes('cdn.tailwindcss.com') === false ? ok('no Tailwind Play CDN') : fail('old Tailwind CDN still live');
-home.text.includes('id="contact-form"') ? ok('contact form present') : fail('contact form missing');
-home.text.includes('portrox-theme') ? ok('theme block present') : fail('theme block missing');
-
-for (const p of ['/about.html', '/services.html', '/book.html', '/about-website.html', '/404.html', '/sitemap.xml', '/robots.txt', '/assets/portrox.css']) {
-  const r = await get(p);
-  r.status === 200 ? ok('GET ' + p + ' 200') : fail('GET ' + p + ' ' + r.status);
+async function get(path) {
+  try {
+    const r = await fetch(base + path, { redirect: 'follow' });
+    return { status: r.status, body: await r.text() };
+  } catch (e) { return { status: 0, body: '', error: e.message }; }
 }
-const about = await get('/about.html');
-about.text.includes('mailto:') ? ok('profile links live') : fail('profile links missing on live about.html');
 
-const locked = await get('/about-website.html');
-locked.text.length > 4000 ? ok('locked page has real content (' + locked.text.length + 'B)') : fail('locked page looks like a stub');
+console.log('LIVE ' + base);
+const home = await get('/');
+if (home.status !== 200) { fail('GET / -> HTTP ' + home.status); console.log('LIVE BAD=' + bad); process.exit(1); }
+ok('GET / 200');
 
-// Private repo paths must NOT be served.
+const isPortrox = /assets\/portrox\.css|portrox-theme|data-portrox/.test(home.body);
+if (isPortrox === false) {
+  fail('homepage is NOT Portrox output - the site has never been published by Portrox');
+  note('Pages is still serving the previous build. ACTION: Studio -> ' + siteId + ' -> Register -> Publish');
+  note('Publish creates gh-pages, switches Pages from workflow to legacy branch deploy, and disables the competing Actions workflow.');
+  console.log('\nLIVE BAD=' + bad + ' (not published - remaining checks skipped, no verdict on them)');
+  process.exit(1);
+}
+ok('served by Portrox');
+
+const want = publicSupabaseFor((c.supabase.default_project_ref || ''));
+const formsExpected = Boolean(want.url);
+
+for (const [label, re] of [['theme block', /portrox-theme/], ['contact form', /id="contact-form"|data-portrox-form/]]) {
+  re.test(home.body) ? ok(label + ' present') : fail(label + ' missing');
+}
+/home\.text|cdn\.tailwindcss\.com/.test(home.body) ? fail('runtime CDN present') : ok('no runtime CDN');
+
+const pages = ['/about.html', '/services.html', '/book.html', '/about-website.html', '/404.html', '/sitemap.xml', '/robots.txt', '/assets/portrox.css'];
+const fetched = {};
+for (const p of pages) {
+  const r = await get(p);
+  fetched[p] = r;
+  r.status === 200 ? ok('GET ' + p + ' 200') : fail('GET ' + p + ' -> HTTP ' + r.status);
+}
+
+// Content checks ONLY when the fetch actually succeeded.
+const about = fetched['/about.html'];
+if (about.status === 200) {
+  /mailto:|profile-links/.test(about.body) ? ok('profile links on about.html') : fail('profile links missing on about.html');
+} else note('about.html content not assessed (not 200)');
+
+const locked = fetched['/about-website.html'];
+if (locked.status === 200) {
+  locked.body.length > 4000 ? ok('locked page real (' + locked.body.length + 'B)') : fail('locked page too short (' + locked.body.length + 'B)');
+} else note('locked page content not assessed (not 200)');
+
 for (const p of ['/.gitleaks.toml', '/.env', '/supabase/config.toml', '/scripts/verify-daemon.mjs', '/package.json']) {
   const r = await get(p);
   r.status === 200 ? fail('PRIVATE FILE SERVED ' + p) : ok('private path blocked ' + p + ' (' + r.status + ')');
 }
 
 const sc = await get('/assets/site-config.js');
-if (wantForms) {
-  sc.status === 200 ? ok('site-config.js shipped') : fail('site-config.js missing but forms expected');
-  /sb_(secret|service)_/.test(sc.text) ? fail('SECRET KEY IN PUBLIC BUNDLE') : ok('publishable key only');
+if (formsExpected) {
+  if (sc.status === 200) {
+    ok('site-config.js 200');
+    /sb_secret_|sb_service_/.test(sc.body) ? fail('SECRET KEY IN PUBLIC BUNDLE') : ok('publishable key only');
+    sc.body.includes(want.url) ? ok('site-config points at the bound project') : fail('site-config project mismatch');
+  } else fail('site-config.js missing but form backend expected (HTTP ' + sc.status + ')');
   const f = await get('/assets/forms.js');
-  f.status === 200 ? ok('forms.js shipped') : fail('forms.js missing');
+  f.status === 200 ? ok('forms.js 200') : fail('forms.js missing (HTTP ' + f.status + ')');
 } else {
-  ok('forms intentionally disabled (Supabase not configured)');
+  note('no project bound - form assets not expected');
+  sc.status === 200 ? fail('site-config.js shipped with no project bound') : ok('no site-config.js (correct)');
 }
 
-console.log(bad === 0 ? 'LIVE OK' : 'LIVE BAD=' + bad);
+console.log('\n' + (bad === 0 ? 'LIVE OK' : 'LIVE BAD=' + bad));
 process.exit(bad === 0 ? 0 : 1);

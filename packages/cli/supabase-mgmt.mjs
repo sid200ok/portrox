@@ -17,6 +17,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { sanitizeForTransport } from './sql-sanitize.mjs';
 
 const API = 'https://api.supabase.com';
 
@@ -238,7 +239,7 @@ export async function applySqlSmart(token, ref, name, sql, version) {
     return r;
   }
   try {
-    await runQuery(token, ref, 'begin;\n' + sql + '\ncommit;');
+    await runQuery(token, ref, 'begin;\n' + sanitizeForTransport(sql) + '\ncommit;');
   } catch (e) {
     try { await runQuery(token, ref, 'rollback;'); } catch {}
     return { ok: false, via: 'query', error: redact(String(e.message).split('\n')[0]).slice(0, 400) };
