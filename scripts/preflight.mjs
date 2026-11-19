@@ -32,7 +32,7 @@ const need = [
   'scripts/verify-all.sh', 'scripts/verify-git-auth.mjs',
   'scripts/supabase-lab.sh', 'scripts/migrate-store.mjs', 'scripts/reconcile-schema.mjs',
   'scripts/supabase-ops.mjs', 'scripts/harden-apply.mjs', 'scripts/sync-mirrors.mjs',
-  'scripts/apply-migration.mjs', 'scripts/clean-probes.mjs', 'scripts/check-profile.mjs',
+  'scripts/apply-migration.mjs', 'scripts/clean-probes.mjs', 'scripts/check-profile.mjs', 'scripts/check-contact.mjs',
   'scripts/publish-site.mjs', 'scripts/audit-db.mjs', 'scripts/restore-db.mjs', 'scripts/backup-db.mjs', 'scripts/inventory.mjs', 'scripts/release.sh',
   'docs/UI-TO-TERMINAL.md',
   'sites/sid200ok.github.io/site.json',
