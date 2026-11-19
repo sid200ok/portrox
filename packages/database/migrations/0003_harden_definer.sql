@@ -23,7 +23,7 @@ grant usage on schema portrox_private to anon, authenticated, service_role;
 comment on schema portrox_private is
   'RLS policy internals. NOT exposed by PostgREST. Callable only inside policies.';
 
-do $$
+do $portrox$
 declare
   f record;
   pol record;
@@ -110,4 +110,4 @@ begin
   end loop;
 
   raise notice 'harden summary: moved=% repointed=% skipped=%', moved, repointed, skipped;
-end $$;
+end $portrox$;

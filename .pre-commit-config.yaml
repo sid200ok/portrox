@@ -1,6 +1,5 @@
 minimum_pre_commit_version: "3.5.0"
 # Applied migrations are immutable artifacts: never let a formatter rewrite them.
-exclude: '^(supabase/migrations/|packages/database/migrations/|dist/|package-lock\.json)'
 repos:
   - repo: local
     hooks:
@@ -27,5 +26,7 @@ repos:
       - id: check-yaml
       - id: check-json
       - id: end-of-file-fixer
+        exclude: '^(supabase/migrations/|packages/database/migrations/)'
       - id: trailing-whitespace
+        exclude: '^(supabase/migrations/|packages/database/migrations/)'
         args: ["--markdown-linebreak-ext=md"]
