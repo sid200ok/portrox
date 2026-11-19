@@ -198,7 +198,12 @@ export function maskedConfig() {
       free_limit: FREE_ACTIVE_PROJECT_LIMIT,
       smart_groups: SMART_GROUPS
     },
-    github: { configured: Boolean(g.token), login: g.login, token_tail: tail(g.token), scopes: g.scopes }
+    github: {
+      // A2: adopting the WSL gh session stores no token but IS connected.
+      configured: Boolean(g.token || g.login),
+      source: g.token ? 'portrox' : (g.login ? 'system' : 'none'),
+      login: g.login, token_tail: tail(g.token), scopes: g.scopes
+    }
   };
 }
 

@@ -1,20 +1,23 @@
 /**
  * gh CLI transport. THE backend for every GitHub operation.
  *
- * HARD RULES
- *  - argv array only. Never shell:true. Never string interpolation into a shell.
- *  - Token in ENV (GH_TOKEN) or the system gh session. NEVER in argv.
- *  - Bodies on STDIN (--input -). Never -f with user-controlled keys.
- *  - Endpoints are DENY-BY-DEFAULT allowlisted, must start with '/', and may
- *    never start with '-' (an argv element starting with '-' becomes a FLAG,
- *    e.g. --hostname evil.tld would exfiltrate the token).
- *  - --hostname github.com is always forced. GH_HOST is pinned.
- *  - Output capped, every call timed out.
+ * HARD RULES (all enforced below)
+ *  - No shell anywhere. gh is resolved by scanning PATH with accessSync.
+ *  - argv array only; bodies and secret values on STDIN.
+ *  - `gh secret set` / `gh variable set` read stdin ONLY when --body is OMITTED.
+ *    Passing `--body -` stores the literal "-" — never do that.
+ *  - Token in ENV (GH_TOKEN) or the adopted system gh session. Never in argv.
+ *  - Endpoints: deny-by-default allowlist, must start with '/', never with '-'
+ *    (an argv element starting with '-' becomes a FLAG, e.g. --hostname).
+ *  - Original query strings are PRESERVED and merged, never discarded.
+ *  - --hostname github.com forced; GH_HOST pinned; output capped; timed out.
  *
- * BOUNDARY: gh subcommands that execute arbitrary code (extension exec, alias,
- * codespace ssh) or manipulate the local filesystem (worktrees) are NOT exposed.
+ * BOUNDARY: subcommands that execute arbitrary code (extension, alias,
+ * codespace, copilot) or mutate gh auth state are NOT exposed.
  */
 import { spawnSync } from 'node:child_process';
+import { accessSync, constants, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadConfig } from './config-store.mjs';
 
 const HOST = 'github.com';
@@ -25,39 +28,47 @@ export class GhError extends Error {
   constructor(message, status, stderr) { super(message); this.status = status; this.stderr = stderr; }
 }
 
+/* A4: zero subprocesses, cached. GH_BINARY overrides discovery. */
+let _ghCache;
 export function ghPath() {
-  const r = spawnSync('command', ['-v', 'gh'], { encoding: 'utf8', shell: '/bin/bash' });
-  const p = String(r.stdout || '').trim();
-  return p && p.startsWith('/') ? p : '';
+  if (_ghCache !== undefined) return _ghCache;
+  const explicit = process.env.GH_BINARY || '';
+  const candidates = explicit ? [explicit]
+    : String(process.env.PATH || '').split(':').filter(Boolean).map(d => join(d, 'gh'));
+  for (const p of candidates) {
+    try {
+      if (statSync(p).isFile() === false) continue;
+      accessSync(p, constants.X_OK);
+      _ghCache = p; return p;
+    } catch {}
+  }
+  _ghCache = ''; return '';
 }
 export function ghInstalled() { return Boolean(ghPath()); }
+export function resetGhCache() { _ghCache = undefined; }
 
-/** Token source: Portrox store wins; otherwise the system gh session is adopted. */
 export function tokenSource() {
   const c = loadConfig();
-  return (c.github && c.github.token) ? 'portrox' : 'system';
+  if (c.github && c.github.token) return 'portrox';
+  if (c.github && c.github.login) return 'system';
+  return 'none';
 }
 
 function env() {
   const c = loadConfig();
   const e = {
     ...process.env,
-    GH_HOST: HOST,
-    GH_PROMPT_DISABLED: '1',
-    GH_PAGER: 'cat',
-    GH_NO_UPDATE_NOTIFIER: '1',
-    NO_COLOR: '1',
-    CLICOLOR: '0',
-    CLICOLOR_FORCE: '0'
+    GH_HOST: HOST, GH_PROMPT_DISABLED: '1', GH_PAGER: 'cat',
+    GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', CLICOLOR: '0', CLICOLOR_FORCE: '0'
   };
   if (c.github && c.github.token) e.GH_TOKEN = c.github.token;
-  else { delete e.GH_TOKEN; delete e.GITHUB_TOKEN; }   // adopt ~/.config/gh
+  else { delete e.GH_TOKEN; delete e.GITHUB_TOKEN; }
   return e;
 }
 
 function run(args, { input } = {}) {
   const bin = ghPath();
-  if (!bin) throw new GhError('gh CLI not installed. Install: sudo apt-get install -y gh  (or see https://cli.github.com)', 0, '');
+  if (!bin) throw new GhError('gh CLI not found on PATH. Install it, or set GH_BINARY.', 0, '');
   const r = spawnSync(bin, args, {
     env: env(), input, encoding: 'utf8', timeout: TIMEOUT, maxBuffer: MAX_OUT, shell: false
   });
@@ -67,8 +78,7 @@ function run(args, { input } = {}) {
 
 /* ---------------- endpoint policy ---------------- */
 const O = '[A-Za-z0-9_.-]+';
-const R = '[A-Za-z0-9_.-]+';
-const OR = `\\/repos\\/${O}\\/${R}`;
+const OR = `\\/repos\\/${O}\\/${O}`;
 const ALLOW = [
   { re: /^\/user$/, m: ['GET'] },
   { re: /^\/user\/repos$/, m: ['GET', 'POST'] },
@@ -107,27 +117,40 @@ export function assertEndpoint(endpoint, method) {
   const m = String(method || 'GET').toUpperCase();
   if (e.startsWith('-')) throw new GhError('endpoint may not start with "-" (argv flag injection)', 0, '');
   if (e.startsWith('/') === false) throw new GhError('endpoint must start with "/"', 0, '');
-  if (/[\s"'`\\]/.test(e) || e.includes('..') || e.includes('://') || e.includes('@')) {
-    throw new GhError('endpoint contains forbidden characters', 0, '');
-  }
-  const path = e.split('?')[0];
+  if (/[\s"'`\\]/.test(e) || e.includes('://') || e.includes('@')) throw new GhError('endpoint contains forbidden characters', 0, '');
+  const q = e.indexOf('?');
+  const path = q < 0 ? e : e.slice(0, q);
+  const search = q < 0 ? '' : e.slice(q + 1);
+  if (path.includes('..')) throw new GhError('path traversal rejected', 0, '');
   const hit = ALLOW.find(a => a.re.test(path));
   if (!hit) throw new GhError('endpoint not in the allowlist: ' + path, 0, '');
   if (hit.m.includes(m) === false) throw new GhError('method ' + m + ' not permitted for ' + path, 0, '');
-  return { path, method: m };
+  return { path, search, method: m };
 }
 export function allowlist() { return ALLOW.map(a => ({ pattern: a.re.source, methods: a.m })); }
 
+/** A3: the console must not be a back door around the typed-confirm gates. */
+export function riskOf(endpoint, method) {
+  const m = String(method || 'GET').toUpperCase();
+  const path = String(endpoint || '').split('?')[0];
+  if (m === 'DELETE') return 'destructive';
+  if (new RegExp(`^${OR}$`).test(path) && m === 'PATCH') return 'destructive';
+  if (m === 'GET' || m === 'HEAD') return 'read';
+  return 'write';
+}
+
 /* ---------------- transport ---------------- */
 export function api(endpoint, { method = 'GET', body, query, paginate = false, include = false } = {}) {
-  const { path, method: m } = assertEndpoint(endpoint, method);
-  let target = path;
+  const { path, search, method: m } = assertEndpoint(endpoint, method);
+  const parts = [];
+  if (search) parts.push(search);                       // A7: preserve original query
   if (query && typeof query === 'object') {
     const qs = Object.entries(query)
       .filter(([, v]) => v !== undefined && v !== null && v !== '')
       .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v))).join('&');
-    if (qs) target += (target.includes('?') ? '&' : '?') + qs;
+    if (qs) parts.push(qs);
   }
+  const target = parts.length ? path + '?' + parts.join('&') : path;
   const args = ['api', '--hostname', HOST, '--method', m];
   if (paginate) args.push('--paginate');
   if (include) args.push('--include');
@@ -153,7 +176,6 @@ export function apiJson(endpoint, opts = {}) {
   catch { throw new GhError('gh returned non-JSON for ' + endpoint, 0, t.slice(0, 200)); }
 }
 
-/** Headers + body, for x-oauth-scopes. */
 export function apiWithHeaders(endpoint) {
   const { raw } = api(endpoint, { include: true });
   const i = raw.search(/\r?\n\r?\n/);
@@ -168,7 +190,6 @@ export function apiWithHeaders(endpoint) {
   return { headers, json };
 }
 
-/** Native subcommands. Fixed argv, secrets on stdin. */
 export function native(args, { input } = {}) {
   if (Array.isArray(args) === false || args.length === 0) throw new GhError('native args required', 0, '');
   for (const a of args) if (typeof a !== 'string') throw new GhError('native args must be strings', 0, '');
@@ -179,19 +200,27 @@ export function native(args, { input } = {}) {
   return r.stdout;
 }
 
-/** gh secret set reads the value from stdin — never argv. */
-export function setSecret(full, name, value) {
-  if (!/^[A-Za-z0-9_]+$/.test(String(name || ''))) throw new GhError('invalid secret name', 0, '');
-  if (typeof value !== 'string' || value.length === 0) throw new GhError('empty secret value', 0, '');
+const NAME_OK = /^[A-Za-z0-9_]+$/;
+function repoParts(full) {
   const [o, r] = String(full || '').split('/');
   if (!o || !r) throw new GhError('repo must be owner/name', 0, '');
-  native(['secret', 'set', name, '--repo', o + '/' + r, '--body', '-'], { input: value });
-  return { set: name, repo: o + '/' + r };
+  return o + '/' + r;
+}
+
+/**
+ * A1 FIX: gh reads the value from STDIN only when --body is OMITTED.
+ * `--body -` would store the literal "-" and silently break every workflow.
+ */
+export function setSecret(full, name, value) {
+  if (!NAME_OK.test(String(name || ''))) throw new GhError('invalid secret name', 0, '');
+  if (typeof value !== 'string' || value.length === 0) throw new GhError('empty secret value', 0, '');
+  const repo = repoParts(full);
+  native(['secret', 'set', name, '--repo', repo], { input: value });
+  return { set: name, repo, via: 'stdin' };
 }
 export function setVariable(full, name, value) {
-  if (!/^[A-Za-z0-9_]+$/.test(String(name || ''))) throw new GhError('invalid variable name', 0, '');
-  const [o, r] = String(full || '').split('/');
-  if (!o || !r) throw new GhError('repo must be owner/name', 0, '');
-  native(['variable', 'set', name, '--repo', o + '/' + r, '--body', String(value ?? '')]);
-  return { set: name, repo: o + '/' + r };
+  if (!NAME_OK.test(String(name || ''))) throw new GhError('invalid variable name', 0, '');
+  const repo = repoParts(full);
+  native(['variable', 'set', name, '--repo', repo], { input: String(value ?? '') });
+  return { set: name, repo, via: 'stdin' };
 }

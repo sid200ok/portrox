@@ -171,10 +171,24 @@ export async function runQuery(token, ref, query, { read_only = false, parameter
 export async function listMigrations(token, ref) {
   return call(token, '/v1/projects/' + encodeURIComponent(ref) + '/database/migrations');
 }
-export async function applyMigration(token, ref, name, query) {
+export async function applyMigration(token, ref, name, query, version) {
+  const url = '/v1/projects/' + encodeURIComponent(ref) + '/database/migrations';
+  // A5: without an explicit version Supabase invents a timestamp, so every
+  // Bootstrap click added an orphan remote version. Send it; self-heal if refused.
+  if (version) {
+    try {
+      const r = await call(token, url, { method: 'POST', body: { name, query, version } });
+      return { ok: true, via: 'migrations', version, result: r };
+    } catch (ev) {
+      if (ev.status !== 400 && ev.status !== 422) {
+        if (ev.status === 403 || ev.status === 404 || ev.status === 402) return { ok: false, restricted: true, status: ev.status, error: ev.message };
+        throw ev;
+      }
+    }
+  }
   try {
-    const r = await call(token, '/v1/projects/' + encodeURIComponent(ref) + '/database/migrations', { method: 'POST', body: { name, query } });
-    return { ok: true, via: 'migrations', result: r };
+    const r = await call(token, url, { method: 'POST', body: { name, query } });
+    return { ok: true, via: 'migrations', version_generated: true, result: r };
   } catch (e) {
     if (e.status === 403 || e.status === 404 || e.status === 402) return { ok: false, restricted: true, status: e.status, error: e.message };
     throw e;
@@ -212,8 +226,14 @@ export async function applySchema(token, ref, repoRoot, { full_history = false, 
   const applied = []; let via = 'migrations';
   for (const m of files) {
     if (onStep) onStep(m.file, 'applying');
-    const r = await applyMigration(token, ref, m.name, m.sql);
-    if (r.ok) { applied.push(m.file); if (onStep) onStep(m.file, 'ok (migrations)'); continue; }
+    const ver = m.name.replace(/_.*$/, '');
+    const r = await applyMigration(token, ref, m.name, m.sql, ver);
+    if (r.ok) {
+      if (r.version_generated) await recordVersion(token, ref, ver, m.name);
+      applied.push(m.file);
+      if (onStep) onStep(m.file, 'ok (migrations' + (r.version_generated ? ', version recorded)' : ', version ' + ver + ')'));
+      continue;
+    }
     if (!r.restricted) throw new MgmtError(r.error || 'migration failed', r.status, null);
     via = 'query';
     await runQuery(token, ref, m.sql);

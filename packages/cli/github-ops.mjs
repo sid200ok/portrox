@@ -2,7 +2,7 @@
  * GitHub operations for the Studio — every call goes through gh-bridge (gh CLI).
  * Exported signatures are unchanged so the 23 existing daemon routes keep working.
  */
-import { apiJson, api, apiWithHeaders, assertEndpoint, allowlist, ghInstalled, tokenSource, setSecret, setVariable, GhError } from './gh-bridge.mjs';
+import { apiJson, api, apiWithHeaders, assertEndpoint, allowlist, riskOf, ghInstalled, tokenSource, setSecret, setVariable, GhError } from './gh-bridge.mjs';
 import { loadConfig, saveConfig, maskedConfig } from './config-store.mjs';
 
 const enc = encodeURIComponent;
@@ -79,10 +79,19 @@ export async function disconnect() {
 export async function rateLimit() { needGh(); return apiJson('/rate_limit'); }
 export function policy() { return allowlist(); }
 /** Constrained console: any allowlisted endpoint/method. */
-export async function console_({ endpoint, method, body }) {
+export async function console_({ endpoint, method, body, confirm }) {
   needGh();
-  assertEndpoint(endpoint, method || 'GET');
-  return apiJson(endpoint, { method: method || 'GET', body });
+  const m = String(method || 'GET').toUpperCase();
+  assertEndpoint(endpoint, m);
+  const risk = riskOf(endpoint, m);
+  // A3: the console must not bypass the typed-confirmation gates.
+  if (risk === 'destructive') {
+    throw new GhError('console refuses ' + m + ' on this path. Use the dedicated button, which requires typing the exact target name.', 0, '');
+  }
+  if (risk === 'write' && confirm !== endpoint) {
+    throw new GhError('write requires confirm equal to the endpoint string', 0, '');
+  }
+  return apiJson(endpoint, { method: m, body });
 }
 
 /* ---------------- identity + repositories ---------------- */
@@ -248,6 +257,12 @@ export async function listVariables(full) {
   return (j.variables || []).map(v => ({ name: v.name, value: v.value, created_at: v.created_at }));
 }
 export async function putVariable(full, name, value) { needGh(); return setVariable(full, name, value); }
+export async function deleteVariable(full, name, confirm) {
+  needGh();
+  if (confirm !== name) throw new GhError('confirmation must equal the variable name', 0, '');
+  api(rp(full) + '/actions/variables/' + enc(name), { method: 'DELETE' });
+  return { deleted: name };
+}
 export async function listArtifacts(full) {
   needGh();
   const j = apiJson(rp(full) + '/actions/artifacts', { query: { per_page: 20 } });

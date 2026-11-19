@@ -72,7 +72,10 @@ for (const [label, fn] of [['security', () => M.securityAdvisor(T(), ref)], ['pe
     ok(label + ' advisor lints: ' + lints.length);
     // Report, do not merely count. Security ERROR/WARN are launch blockers.
     for (const l of lints.slice(0, 12)) {
-      console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' — ' + (l.title || l.description || '').slice(0, 110));
+      const md = l.metadata || {};
+      const obj = [md.schema, md.entity || md.name].filter(Boolean).join('.');
+      console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + (obj ? ' on ' + obj : '') + ' — ' + (l.detail || l.title || l.description || '').slice(0, 150));
+      if (l.remediation) console.log('        fix: ' + l.remediation);
     }
     if (label === 'security') {
       const serious = lints.filter(l => /^(ERROR|WARN)$/i.test(String(l.level || '')));
