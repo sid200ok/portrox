@@ -18,7 +18,8 @@ export const MIRROR_MAP = {
   '20261119080000_perf_rls_fk.sql': '0004_perf_rls_fk.sql',
   '20261119090000_legacy_lockdown.sql': '0005_legacy_lockdown.sql',
   '20261119100000_drop_legacy_policies.sql': '0006_drop_legacy_policies.sql',
-  '20261123210000_inbox_triage.sql': '0007_inbox_triage.sql'
+  '20261123210000_inbox_triage.sql': '0007_inbox_triage.sql',
+  '20261123220000_media_unique.sql': '0008_media_unique.sql'
 };
 /** [mirrorPath, sourcePath] pairs derived from the map. Never hand-written. */
 export function mirrorPairs() {

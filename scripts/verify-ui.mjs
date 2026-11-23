@@ -64,6 +64,16 @@ try {
   app.includes('PORTROX_GH_CONN') ? ok('GitHub connection panel present') : fail('connection panel missing');
   app.includes('PORTROX_CONTENT_TAB') ? ok('content editor tab present') : fail('content editor tab missing - backend-only module');
   app.includes('PORTROX_INBOX_TAB') ? ok('inbox tab present') : fail('inbox tab missing - backend-only module');
+  app.includes('PORTROX_MEDIA_TAB') ? ok('media tab present') : fail('media tab missing - backend-only module');
+  for (const ep of ['/api/media/','/api/media/upload','/api/media/delete','/api/media/avatar']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const id of ['md-site','md-file','md-alt']) {
+    app.includes(id) ? ok('media control ' + id) : fail('media control ' + id + ' missing');
+  }
+  for (const act of ['mdload','mdup','mdavatar','mddel']) {
+    app.includes(act) ? ok('media action ' + act) : fail('media action ' + act + ' missing');
+  }
   for (const ep of ['/api/inbox/','/api/inbox/triage','/api/inbox/delete']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }

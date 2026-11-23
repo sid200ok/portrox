@@ -235,7 +235,9 @@ export async function applySqlSmart(token, ref, name, sql, version) {
   const dollarQuoted = /\$[A-Za-z_]*\$/.test(String(sql));
   if (dollarQuoted === false) {
     const r = await applyMigration(token, ref, name, sql, version);
-    if (r.ok && r.version_generated && version) await recordVersion(token, ref, version, name);
+    // The endpoint ACCEPTS a version field and still assigns its own timestamp,
+    // which grew the orphan drift from 2 to 3. Always record the canonical one.
+    if (r.ok && version) await recordVersion(token, ref, version, name);
     return r;
   }
   try {

@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -738,6 +738,25 @@ function vSettings(){
       +(rs.length?'<div class="tblwrap" style="margin-top:14px"><table><thead><tr><th>When</th><th>From</th><th>Message</th><th>State</th><th>Actions</th></tr></thead><tbody>'+trs+'</tbody></table></div>'
         :'<p class="note" style="margin-top:12px">Nothing loaded yet, or no rows match the filter.</p>')
       +'</div>';
+  } else if(S.sub==='media'){
+    /* PORTROX_MEDIA_TAB — images are BUILD ASSETS, shipped by the renderer. */
+    var D=S.md||{},sites=S.sites||[],ds=D.site||(sites[0]&&sites[0].id)||'';
+    var sopts=sites.map(function(x){return '<option value="'+h(x.id)+'"'+(ds===x.id?' selected':'')+'>'+h(x.id)+'</option>'}).join('');
+    var fl=D.files||[];
+    var trs=fl.map(function(f){return '<tr><td class="mono">'+h(f.name)+'</td><td>'+f.bytes+' B</td>'
+      +'<td class="mono">'+h(f.path)+'</td>'
+      +'<td class="act"><button class="btn sm" data-act="mdavatar" data-name="'+h(f.name)+'">Set as avatar</button> '
+      +'<button class="btn sm danger" data-act="mddel" data-name="'+h(f.name)+'">Delete</button></td></tr>'}).join('');
+    body='<div class="card"><header><h3>Media</h3><span class="pill mute">'+fl.length+' file(s)</span></header>'
+      +'<p class="desc">Images are written into the site and shipped by the renderer to <span class="mono">assets/media/</span>. PNG, JPEG, WebP, GIF, AVIF only. SVG is refused because it can carry script. Content is checked against magic bytes, so a renamed file is rejected. Max '+Math.round(700)+' KB.</p>'
+      +'<div class="field"><label>Site</label><select class="inp" id="md-site">'+sopts+'</select></div>'
+      +'<div class="row wrap"><button class="btn" data-act="mdload">Load media</button></div>'
+      +'<div class="hr"></div><div class="grid g2"><div class="field"><label>Image file</label><input class="inp" type="file" id="md-file" accept=".png,.jpg,.jpeg,.webp,.gif,.avif"></div>'
+      +'<div class="field"><label>Alt text</label><input class="inp" id="md-alt" placeholder="Describe the image"></div></div>'
+      +'<div class="row wrap"><button class="btn pri" data-act="mdup">Upload</button></div>'
+      +(D.err?'<div class="alert err" style="margin-top:12px">'+h(D.err)+'</div>':'')
+      +(fl.length?'<div class="tblwrap" style="margin-top:14px"><table><thead><tr><th>File</th><th>Size</th><th>Published path</th><th>Actions</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<p class="note" style="margin-top:12px">No media yet.</p>')
+      +'<p class="hint" style="margin-top:12px">After uploading, use Save and rebuild in Content or Publish to ship it.</p></div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -837,6 +856,22 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='mdload'){var s=$('md-site').value;S.md=S.md||{};S.md.site=s;S.md.err='';
+    return api('/api/media/'+encodeURIComponent(s)).then(function(j){S.md.files=j.files;S.md.rows=j.rows;render()}).catch(function(x){S.md.err=x.message;render()})}
+  if(a==='mdup'){var s=$('md-site').value,el=$('md-file'),alt=$('md-alt').value;
+    if(!el.files||!el.files[0]){toast('Choose a file first','err');return}
+    var f=el.files[0];S.md=S.md||{};S.md.site=s;S.md.err='';
+    var rd=new FileReader();
+    rd.onload=function(){var b64=String(rd.result).split(',')[1]||'';
+      api('/api/media/upload',{site:s,name:f.name,data:b64,alt:alt})
+        .then(function(j){toast('Uploaded '+j.name+' ('+j.bytes+'B)','ok');return api('/api/media/'+encodeURIComponent(s)).then(function(k){S.md.files=k.files;S.md.rows=k.rows;render()})})
+        .catch(function(x){S.md.err=x.message;toast(x.message,'err');render()})};
+    rd.onerror=function(){toast('Could not read the file','err')};
+    rd.readAsDataURL(f);return}
+  if(a==='mdavatar'){var n=btn.getAttribute('data-name');
+    return api('/api/media/avatar',{site:S.md.site,name:n}).then(function(j){toast('Avatar set to '+j.avatar+' - rebuild to ship','ok')}).catch(function(x){toast(x.message,'err')})}
+  if(a==='mddel'){var n=btn.getAttribute('data-name');if(prompt('Type the filename to DELETE it:')!==n)return;
+    return api('/api/media/delete',{site:S.md.site,name:n,confirm:n}).then(function(){toast('Deleted '+n,'info');return api('/api/media/'+encodeURIComponent(S.md.site)).then(function(k){S.md.files=k.files;S.md.rows=k.rows;render()})}).catch(function(x){toast(x.message,'err')})}
   if(a==='ibload'){var s=$('ib-site').value,k=$('ib-kind').value,t=$('ib-triage').value;
     S.ib=S.ib||{};S.ib.site=s;S.ib.kind=k;S.ib.triage=t;S.ib.err='';
     var q='?limit=200'+(k?'&kind='+encodeURIComponent(k):'')+(t?'&triage='+encodeURIComponent(t):'');

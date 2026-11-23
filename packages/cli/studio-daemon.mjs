@@ -19,7 +19,8 @@ import * as M from './supabase-mgmt.mjs';
 import * as DB from './db-bridge.mjs';
 import * as GH from './github-ops.mjs';
 import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API
-import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API // PORTROX_GH_ROUTES
+import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API
+import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -416,6 +417,20 @@ const server = createServer(async (req, res) => {
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }
 
+      /* ---------- Media ---------- */
+      if (p === '/api/media/upload') {
+        try { return json(200, await MD.uploadMedia(REPO, String(b.site || ''), String(b.name || ''), b.data, { alt: String(b.alt || ''), kind: String(b.kind || 'image') })); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/media/delete') {
+        try { return json(200, await MD.deleteMedia(REPO, String(b.site || ''), String(b.name || ''), String(b.confirm || ''))); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/media/avatar') {
+        try { return json(200, await MD.setAvatar(REPO, String(b.site || ''), String(b.name || ''))); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/content/write') {
         try { return json(200, CS.writeContent(REPO, String(b.site || ''), String(b.file || ''), b.text)); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -447,6 +462,13 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      const mm = u.pathname.match(/^\/api\/media\/([^/]+)$/);
+      if (mm) {
+        try {
+          const sid = decodeURIComponent(mm[1]);
+          return json(200, { files: MD.listMedia(REPO, sid), rows: await MD.dbRows(sid) });
+        } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
       const im = u.pathname.match(/^\/api\/inbox\/([^/]+)$/);
       if (im) {
         const sid = decodeURIComponent(im[1]);
