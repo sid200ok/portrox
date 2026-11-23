@@ -65,6 +65,16 @@ try {
   app.includes('PORTROX_CONTENT_TAB') ? ok('content editor tab present') : fail('content editor tab missing - backend-only module');
   app.includes('PORTROX_INBOX_TAB') ? ok('inbox tab present') : fail('inbox tab missing - backend-only module');
   app.includes('PORTROX_MEDIA_TAB') ? ok('media tab present') : fail('media tab missing - backend-only module');
+  app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
+  for (const ep of ['/api/intro/','/api/intro/preview','/api/intro/save']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const id of ['iw-site','iw-name','iw-headline','iw-skills','iw-seeking']) {
+    app.includes(id) ? ok('intro control ' + id) : fail('intro control ' + id + ' missing');
+  }
+  for (const act of ['iwload','iwpreview','iwsave']) {
+    app.includes(act) ? ok('intro action ' + act) : fail('intro action ' + act + ' missing');
+  }
   for (const ep of ['/api/media/','/api/media/upload','/api/media/delete','/api/media/avatar']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }

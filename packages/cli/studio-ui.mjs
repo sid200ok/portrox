@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -757,6 +757,31 @@ function vSettings(){
       +(D.err?'<div class="alert err" style="margin-top:12px">'+h(D.err)+'</div>':'')
       +(fl.length?'<div class="tblwrap" style="margin-top:14px"><table><thead><tr><th>File</th><th>Size</th><th>Published path</th><th>Actions</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<p class="note" style="margin-top:12px">No media yet.</p>')
       +'<p class="hint" style="margin-top:12px">After uploading, use Save and rebuild in Content or Publish to ship it.</p></div>';
+  } else if(S.sub==='intro'){
+    /* PORTROX_INTRO_TAB — guided prose, no headings, no AI calls. */
+    var W=S.iw||{},sites=S.sites||[],ws=W.site||(sites[0]&&sites[0].id)||'';
+    var sopts=sites.map(function(x){return '<option value="'+h(x.id)+'"'+(ws===x.id?' selected':'')+'>'+h(x.id)+'</option>'}).join('');
+    var d=W.defaults||{},a=W.answers||{};
+    function fld(id,label,val,ph){return '<div class="field"><label>'+label+'</label><input class="inp" id="'+id+'" value="'+h(val||'')+'" placeholder="'+h(ph||'')+'"></div>'}
+    body='<div class="card"><header><h3>Intro wizard</h3></header>'
+      +'<p class="desc">Answer a few questions and Portrox writes your homepage intro. No AI calls, no headings - the homepage already has its single h1, so the wizard emits prose only. Preview and Save produce identical bytes.</p>'
+      +'<div class="field"><label>Site</label><select class="inp" id="iw-site">'+sopts+'</select></div>'
+      +'<div class="row wrap"><button class="btn" data-act="iwload">Load current + defaults</button></div>'
+      +'<div class="hr"></div><div class="grid g2">'
+      +fld('iw-name','Name',a.name||d.name,'Your name')
+      +fld('iw-headline','Headline',a.headline||d.headline,'Full-Stack Developer')
+      +fld('iw-years','Years of experience',a.years,'5')
+      +fld('iw-location','Location',a.location||d.location,'City, Country')
+      +'</div>'
+      +fld('iw-skills','Skills (comma separated, up to 6)',(a.skills||d.skills||[]).join(', '),'Python, PostgreSQL, Asterisk')
+      +fld('iw-seeking','What you are looking for',a.seeking,'Open to remote backend roles.')
+      +fld('iw-availability','Availability',a.availability,'Available immediately')
+      +'<div class="row wrap"><button class="btn" data-act="iwpreview">Preview</button>'
+      +'<button class="btn pri" data-act="iwsave">Save and rebuild</button></div>'
+      +(W.err?'<div class="alert err" style="margin-top:12px">'+h(W.err)+'</div>':'')
+      +(W.markdown?'<div class="hr"></div><div class="field"><label>Generated markdown ('+W.markdown.length+' chars)</label><pre class="log" style="max-height:240px">'+h(W.markdown)+'</pre></div>':'')
+      +(W.current?'<div class="field"><label>Currently published intro</label><pre class="log" style="max-height:200px">'+h(W.current)+'</pre></div>':'')
+      +'</div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -856,6 +881,17 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='iwload'){var s=$('iw-site').value;S.iw=S.iw||{};S.iw.site=s;S.iw.err='';
+    return api('/api/intro/'+encodeURIComponent(s)).then(function(j){S.iw.current=j.markdown;S.iw.defaults=j.defaults;render()}).catch(function(x){S.iw.err=x.message;render()})}
+  if(a==='iwpreview'||a==='iwsave'){var s=$('iw-site').value;
+    var ans={name:$('iw-name').value,headline:$('iw-headline').value,years:$('iw-years').value,
+      location:$('iw-location').value,seeking:$('iw-seeking').value,availability:$('iw-availability').value,
+      skills:$('iw-skills').value.split(',').map(function(x){return x.trim()}).filter(Boolean)};
+    S.iw=S.iw||{};S.iw.site=s;S.iw.answers=ans;S.iw.err='';
+    if(a==='iwpreview'){return api('/api/intro/preview',{site:s,answers:ans}).then(function(j){S.iw.markdown=j.markdown;render()}).catch(function(x){S.iw.err=x.message;render()})}
+    return api('/api/intro/save',{site:s,answers:ans}).then(function(j){S.iw.markdown=null;toast('Intro saved ('+j.bytes+'B)','ok');
+      return api('/api/sites/'+encodeURIComponent(s)+'/build',{}).then(function(){toast('Rebuilt - Publish to ship','ok');return api('/api/intro/'+encodeURIComponent(s)).then(function(k){S.iw.current=k.markdown;render()})})})
+      .catch(function(x){S.iw.err=x.message;toast(x.message,'err');render()})}
   if(a==='mdload'){var s=$('md-site').value;S.md=S.md||{};S.md.site=s;S.md.err='';
     return api('/api/media/'+encodeURIComponent(s)).then(function(j){S.md.files=j.files;S.md.rows=j.rows;render()}).catch(function(x){S.md.err=x.message;render()})}
   if(a==='mdup'){var s=$('md-site').value,el=$('md-file'),alt=$('md-alt').value;

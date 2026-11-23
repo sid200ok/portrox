@@ -86,7 +86,8 @@ export async function uploadMedia(repo, siteId, fileName, dataB64, { alt = '', k
   const { dir } = siteDir(repo, siteId);
   const { name, ext } = safeName(fileName);
   const kinds = await allowedKinds();
-  const useKind = kind || kinds[0];
+  // A generic upload is an attachment. 'avatar' is only set by setAvatar.
+  const useKind = kind || (kinds.includes('attachment') ? 'attachment' : kinds[0]);
   if (kinds.includes(useKind) === false) throw new MediaError('invalid kind: ' + useKind + ' (allowed: ' + kinds.join(', ') + ')');
   let buf;
   try { buf = Buffer.from(String(dataB64 || ''), 'base64'); } catch { throw new MediaError('data is not base64'); }

@@ -15,16 +15,34 @@ const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 const note = m => console.log('NOTE ' + m);
 
-async function get(path) {
-  try {
-    const r = await fetch(base + path, { redirect: 'follow' });
-    return { status: r.status, body: await r.text() };
-  } catch (e) { return { status: 0, body: '', error: e.message }; }
+// status 0 means the fetch THREW - a transport failure, not an HTTP status.
+// WSL drops connections transiently. Retry with backoff and a timeout, and keep
+// the error message so the cause is visible instead of being discarded.
+async function get(path, tries = 3) {
+  let last = '';
+  for (let i = 1; i <= tries; i++) {
+    try {
+      const r = await fetch(base + path, { redirect: 'follow', signal: AbortSignal.timeout(15000) });
+      return { status: r.status, body: await r.text(), attempts: i };
+    } catch (e) {
+      last = String(e && e.message || e);
+      if (i < tries) await new Promise(r => setTimeout(r, 1000 * i));
+    }
+  }
+  return { status: 0, body: '', error: last, attempts: tries };
 }
 
 console.log('LIVE ' + base);
 const home = await get('/');
+if (home.status === 0) {
+  fail('TRANSPORT ERROR after ' + home.attempts + ' attempts: ' + home.error);
+  note('This is a network/TLS failure from this machine, NOT a verdict on the published site.');
+  note('Check: curl -sSI ' + base + '/  and  getent hosts sid200ok.github.io');
+  console.log('\nLIVE BAD=' + bad + ' (transport - no product verdict issued)');
+  process.exit(1);
+}
 if (home.status !== 200) { fail('GET / -> HTTP ' + home.status); console.log('LIVE BAD=' + bad); process.exit(1); }
+if (home.attempts > 1) note('homepage needed ' + home.attempts + ' attempts (transient network)');
 ok('GET / 200');
 
 const isPortrox = /assets\/portrox\.css|portrox-theme|data-portrox/.test(home.body);

@@ -20,7 +20,8 @@ import * as DB from './db-bridge.mjs';
 import * as GH from './github-ops.mjs';
 import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API
 import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API
-import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API // PORTROX_GH_ROUTES
+import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API
+import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -431,6 +432,16 @@ const server = createServer(async (req, res) => {
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }
 
+      /* ---------- Intro wizard ---------- */
+      if (p === '/api/intro/preview') {
+        try { return json(200, IW.previewIntro(REPO, String(b.site || ''), b.answers || {})); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/intro/save') {
+        try { return json(200, IW.saveIntro(REPO, String(b.site || ''), b.answers || {})); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/content/write') {
         try { return json(200, CS.writeContent(REPO, String(b.site || ''), String(b.file || ''), b.text)); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -462,6 +473,13 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      const iw = u.pathname.match(/^\/api\/intro\/([^/]+)$/);
+      if (iw) {
+        try {
+          const sid = decodeURIComponent(iw[1]);
+          return json(200, { markdown: IW.currentIntro(REPO, sid), defaults: IW.defaultsFromProfile(REPO, sid) });
+        } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
       const mm = u.pathname.match(/^\/api\/media\/([^/]+)$/);
       if (mm) {
         try {
