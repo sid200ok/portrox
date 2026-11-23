@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
+step "inbox round trip"
+node scripts/run-gate.mjs scripts/verify-inbox.mjs || stop "inbox does not round-trip safely"
+
 step "content editor round trip"
 node scripts/run-gate.mjs scripts/verify-content-api.mjs || stop "content store does not round-trip safely"
 

@@ -18,7 +18,8 @@ import {
 import * as M from './supabase-mgmt.mjs';
 import * as DB from './db-bridge.mjs';
 import * as GH from './github-ops.mjs';
-import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API // PORTROX_GH_ROUTES
+import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API
+import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -405,6 +406,16 @@ const server = createServer(async (req, res) => {
       if (p === '/api/github/secret/delete') { try { return json(200, await GH.deleteSecret(b.repo, b.name, b.confirm)); } catch (e) { return json(400, { error: redact(e.message) }); } }
 
       /* ---------- Phase 2: content editor ---------- */
+      /* ---------- Inbox ---------- */
+      if (p === '/api/inbox/triage') {
+        try { return json(200, await IB.setTriage(String(b.id || ''), String(b.value || ''), b.project)); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/inbox/delete') {
+        try { return json(200, await IB.deleteSubmission(String(b.id || ''), String(b.confirm || ''), b.project)); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/content/write') {
         try { return json(200, CS.writeContent(REPO, String(b.site || ''), String(b.file || ''), b.text)); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -436,6 +447,15 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      const im = u.pathname.match(/^\/api\/inbox\/([^/]+)$/);
+      if (im) {
+        const sid = decodeURIComponent(im[1]);
+        try {
+          const q = u.searchParams;
+          const list = await IB.listInbox(sid, { kind: q.get('kind') || '', triage: q.get('triage') || '', limit: q.get('limit') || 100 });
+          return json(200, { rows: list, counts: await IB.counts(sid) });
+        } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
       const cm = u.pathname.match(/^\/api\/content\/([^/]+)(?:\/(.+))?$/);
       if (cm) {
         const sid = decodeURIComponent(cm[1]);

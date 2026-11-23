@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -710,6 +710,34 @@ function vSettings(){
           +'<button class="btn ghost" data-act="ctopen">Discard changes</button></div>'
         : '<p class="note" style="margin-top:12px">Load files, pick one, then Open file.</p>')
       +'</div>';
+  } else if(S.sub==='inbox'){
+    /* PORTROX_INBOX_TAB — leads and bookings, triaged in the Studio. */
+    var I=S.ib||{},sites=S.sites||[],is=I.site||(sites[0]&&sites[0].id)||'';
+    var sopts=sites.map(function(x){return '<option value="'+h(x.id)+'"'+(is===x.id?' selected':'')+'>'+h(x.id)+'</option>'}).join('');
+    var ko=['','contact','booking'].map(function(v){return '<option value="'+v+'"'+((I.kind||'')===v?' selected':'')+'>'+(v||'all kinds')+'</option>'}).join('');
+    var to=['','new','read','replied','archived'].map(function(v){return '<option value="'+v+'"'+((I.triage||'')===v?' selected':'')+'>'+(v||'all states')+'</option>'}).join('');
+    var rs=I.rows||[];
+    function pill(v){var cls=v==='new'?'ok':(v==='replied'?'ok':(v==='archived'?'mute':'warn'));return '<span class="pill '+cls+'">'+h(v||'')+'</span>'}
+    var trs=rs.map(function(r){
+      var when=String(r.created_at||'').slice(0,16).replace('T',' ');
+      var appt=r.appointment_id?('<div class="sub mono">'+h(String(r.starts_at||'').slice(0,16).replace('T',' '))+' · '+h(r.duration_minutes||0)+'m · '+h(r.appointment_status||'')+'</div>'):'';
+      var acts=['new','read','replied','archived'].filter(function(v){return v!==r.triage}).map(function(v){
+        return '<button class="btn sm" data-act="ibtri" data-id="'+h(r.id)+'" data-v="'+v+'">'+v+'</button>'}).join(' ');
+      return '<tr><td><div class="sub mono">'+h(when)+'</div>'+pill(r.kind)+'</td>'
+        +'<td><div class="name">'+h(r.full_name||'')+'</div><div class="sub"><a href="mailto:'+h(r.email||'')+'">'+h(r.email||'')+'</a></div>'+appt+'</td>'
+        +'<td>'+h(String(r.message||'').slice(0,180))+'</td>'
+        +'<td>'+pill(r.triage)+'</td>'
+        +'<td class="act">'+acts+' <button class="btn sm danger" data-act="ibdel" data-id="'+h(r.id)+'">Delete</button></td></tr>'}).join('');
+    body='<div class="card"><header><h3>Inbox</h3><span class="pill mute">'+rs.length+' shown</span></header>'
+      +'<p class="desc">Contact messages and bookings submitted through the public site. Deleting a lead also frees its booked slot. Only you can see this; anonymous visitors have no read access.</p>'
+      +'<div class="grid g3"><div class="field"><label>Site</label><select class="inp" id="ib-site">'+sopts+'</select></div>'
+      +'<div class="field"><label>Kind</label><select class="inp" id="ib-kind">'+ko+'</select></div>'
+      +'<div class="field"><label>State</label><select class="inp" id="ib-triage">'+to+'</select></div></div>'
+      +'<div class="row wrap"><button class="btn pri" data-act="ibload">Load inbox</button></div>'
+      +(I.err?'<div class="alert err" style="margin-top:12px">'+h(I.err)+'</div>':'')
+      +(rs.length?'<div class="tblwrap" style="margin-top:14px"><table><thead><tr><th>When</th><th>From</th><th>Message</th><th>State</th><th>Actions</th></tr></thead><tbody>'+trs+'</tbody></table></div>'
+        :'<p class="note" style="margin-top:12px">Nothing loaded yet, or no rows match the filter.</p>')
+      +'</div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -809,6 +837,14 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='ibload'){var s=$('ib-site').value,k=$('ib-kind').value,t=$('ib-triage').value;
+    S.ib=S.ib||{};S.ib.site=s;S.ib.kind=k;S.ib.triage=t;S.ib.err='';
+    var q='?limit=200'+(k?'&kind='+encodeURIComponent(k):'')+(t?'&triage='+encodeURIComponent(t):'');
+    return api('/api/inbox/'+encodeURIComponent(s)+q).then(function(j){S.ib.rows=j.rows;S.ib.counts=j.counts;render()}).catch(function(x){S.ib.err=x.message;render()})}
+  if(a==='ibtri'){var id=btn.getAttribute('data-id'),v=btn.getAttribute('data-v');
+    return api('/api/inbox/triage',{id:id,value:v}).then(function(){toast('Marked '+v,'ok');return api('/api/inbox/'+encodeURIComponent(S.ib.site)+'?limit=200'+(S.ib.kind?'&kind='+S.ib.kind:'')+(S.ib.triage?'&triage='+S.ib.triage:'')).then(function(j){S.ib.rows=j.rows;S.ib.counts=j.counts;render()})}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ibdel'){var id=btn.getAttribute('data-id');if(prompt('Type the submission id to DELETE it (also frees any booked slot):')!==id)return;
+    return api('/api/inbox/delete',{id:id,confirm:id}).then(function(){toast('Deleted','info');return api('/api/inbox/'+encodeURIComponent(S.ib.site)+'?limit=200').then(function(j){S.ib.rows=j.rows;S.ib.counts=j.counts;render()})}).catch(function(x){toast(x.message,'err')})}
   if(a==='ctload'){var s=$('ct-site').value;S.ct=S.ct||{};S.ct.site=s;S.ct.err='';
     return api('/api/content/'+encodeURIComponent(s)).then(function(j){S.ct.files=j;S.ct.text=undefined;S.ct.file='';render()}).catch(function(x){S.ct.err=x.message;render()})}
   if(a==='ctopen'){var s=$('ct-site').value,f=$('ct-file').value;if(!f){toast('Pick a file first','err');return}

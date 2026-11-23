@@ -63,6 +63,16 @@ try {
   app.includes('gh-repo') ? ok('repository selector present') : fail('repository selector missing');
   app.includes('PORTROX_GH_CONN') ? ok('GitHub connection panel present') : fail('connection panel missing');
   app.includes('PORTROX_CONTENT_TAB') ? ok('content editor tab present') : fail('content editor tab missing - backend-only module');
+  app.includes('PORTROX_INBOX_TAB') ? ok('inbox tab present') : fail('inbox tab missing - backend-only module');
+  for (const ep of ['/api/inbox/','/api/inbox/triage','/api/inbox/delete']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const id of ['ib-site','ib-kind','ib-triage']) {
+    app.includes(id) ? ok('inbox control ' + id) : fail('inbox control ' + id + ' missing');
+  }
+  for (const act of ['ibload','ibtri','ibdel']) {
+    app.includes(act) ? ok('inbox action ' + act) : fail('inbox action ' + act + ' missing');
+  }
   app.includes("'content'") ? ok('content settings tab registered') : fail('content tab not registered');
   for (const ep of ['/api/content/','/api/content/write']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
