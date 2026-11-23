@@ -17,7 +17,7 @@ step "supabase management surface"
 node scripts/run-gate.mjs scripts/verify-supabase.mjs || stop "Supabase Management API gate failed"
 
 step "github operations surface"
-node scripts/run-gate.mjs scripts/verify-github.mjs || stop "GitHub operations gate failed"
+node scripts/run-gate.mjs scripts/verify-github.mjs --write || stop "GitHub operations gate failed"
 
 step "auth lifecycle regression (sandbox)"
 node scripts/run-gate.mjs scripts/verify-auth.mjs || stop "auth regression failed"
