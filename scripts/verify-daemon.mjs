@@ -51,6 +51,20 @@ function assertNoLeaks(raw, csrf, label) {
   return j;
 }
 
+// LIVENESS FIRST. A stale state.json after a WSL restart produced ten
+// misleading product FAILs (CSRF, Host, Origin, session) when the only real
+// condition was "the daemon is not running". The sandbox suite passed all of
+// those in the same run, which is how the false diagnosis was identified.
+{
+  const probe = curl(['-fsS', st.url + '/api/health']);
+  if (probe.status !== 0) {
+    console.log('FAIL daemon not reachable at ' + st.url + ' - state.json is STALE');
+    console.log('     pid recorded in state: ' + st.pid);
+    console.log('ACTION: node packages/cli/portrox.mjs restart   then re-run this gate');
+    console.log('\nDAEMON BAD=1 (not running - no product verdict issued)');
+    process.exit(1);
+  }
+}
 st.host === '127.0.0.1' ? ok('bind 127.0.0.1') : fail('bind ' + st.host);
 (st.port > 0 && st.port !== 8000 && st.port !== 3000) ? ok('dynamic port ' + st.port) : fail('suspicious port ' + st.port);
 for (const [f, want] of [['state.json', '600'], ['auth.json', '600']]) {

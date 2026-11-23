@@ -63,6 +63,14 @@ fi
 echo "== publish =="
 node scripts/publish-site.mjs || { echo "BLOCKED: publish failed"; exit 1; }
 
+echo "== daemon =="
+# publish uses the modules directly and needs no daemon, but verify-daemon does.
+# After a WSL restart the process is gone and state.json is stale, which blocked
+# the release with ten misleading product failures. restart refuses to signal a
+# recycled PID and clears stale state, so this is safe.
+node packages/cli/portrox.mjs restart || { echo "BLOCKED: daemon would not start"; exit 1; }
+sleep 1
+
 echo "== full suite =="
 bash scripts/verify-all.sh
 RC=$?

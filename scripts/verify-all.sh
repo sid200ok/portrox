@@ -8,34 +8,34 @@ step(){ printf '\n=== %s ===\n' "$1"; }
 stop(){ printf '\nBLOCKED: %s\n' "$1"; exit 1; }
 
 step "preflight"
-node scripts/preflight.mjs || stop "preflight failed"
+node scripts/run-gate.mjs scripts/preflight.mjs || stop "preflight failed"
 
 step "emitted browser script"
-node scripts/verify-ui.mjs || stop "emitted UI script invalid — pages would render empty"
+node scripts/run-gate.mjs scripts/verify-ui.mjs || stop "emitted UI script invalid — pages would render empty"
 
 step "supabase management surface"
-node scripts/verify-supabase.mjs || stop "Supabase Management API gate failed"
+node scripts/run-gate.mjs scripts/verify-supabase.mjs || stop "Supabase Management API gate failed"
 
 step "github operations surface"
-node scripts/verify-github.mjs || stop "GitHub operations gate failed"
+node scripts/run-gate.mjs scripts/verify-github.mjs || stop "GitHub operations gate failed"
 
 step "auth lifecycle regression (sandbox)"
-node scripts/verify-auth.mjs || stop "auth regression failed"
+node scripts/run-gate.mjs scripts/verify-auth.mjs || stop "auth regression failed"
 
 step "build"
 portrox build --all || stop "build failed"
 
 step "render"
-node scripts/verify-render.mjs || stop "render verification failed"
+node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
 step "content editor round trip"
-node scripts/verify-content-api.mjs || stop "content store does not round-trip safely"
+node scripts/run-gate.mjs scripts/verify-content-api.mjs || stop "content store does not round-trip safely"
 
 step "content structure"
-node scripts/verify-content.mjs || stop "rendered content has structural defects (duplicate h1, broken refs, missing meta)"
+node scripts/run-gate.mjs scripts/verify-content.mjs || stop "rendered content has structural defects (duplicate h1, broken refs, missing meta)"
 
 step "daemon"
-node scripts/verify-daemon.mjs || stop "daemon verification failed"
+node scripts/run-gate.mjs scripts/verify-daemon.mjs || stop "daemon verification failed"
 
 step "credential strength gate"
 WEAK="$(node -e 'import("./packages/cli/auth-store.mjs").then(m=>process.stdout.write(m.publicState().weakPassword?"yes":"no"))')"
@@ -51,25 +51,25 @@ case "$CFG" in
 esac
 
 step "rpc (positive)"
-node scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
+node scripts/run-gate.mjs scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
 
 step "database audit (grants, RLS, future booking)"
-node scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+node scripts/run-gate.mjs scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 
 step "restore proof (scratch schema)"
-node scripts/restore-db.mjs || stop "latest backup is not restorable"
+node scripts/run-gate.mjs scripts/restore-db.mjs || stop "latest backup is not restorable"
 
 step "probe cleanup"
-node scripts/clean-probes.mjs || stop "probe cleanup failed - production inbox is accumulating test rows"
+node scripts/run-gate.mjs scripts/clean-probes.mjs || stop "probe cleanup failed - production inbox is accumulating test rows"
 
 step "contact consistency"
-node scripts/check-contact.mjs || stop "contact details disagree across site profiles and documents"
+node scripts/run-gate.mjs scripts/check-contact.mjs || stop "contact details disagree across site profiles and documents"
 
 step "profile handle"
-node scripts/check-profile.mjs || stop "profile links do not match the authenticated GitHub handle"
+node scripts/run-gate.mjs scripts/check-profile.mjs || stop "profile links do not match the authenticated GitHub handle"
 
 step "live"
-node scripts/verify-live.mjs || stop "live site is not Portrox output yet — click Publish in the Studio"
+node scripts/run-gate.mjs scripts/verify-live.mjs || stop "live site is not Portrox output yet — click Publish in the Studio"
 
 step "secrets"
 bash scripts/audit-secrets.sh || stop "secret audit failed"
