@@ -81,6 +81,19 @@ health.status === 0 ? ok('health ' + health.stdout.trim()) : fail('health unreac
 health.stdout.includes('sites') ? fail('health leaks site inventory') : ok('health leaks no inventory');
 
 code([st.url + '/api/config']) === '401' ? ok('GET /api/config without session -> 401') : fail('config not gated');
+
+// The store modules are tested directly, and verify-ui only checks the UI
+// mentions the endpoints. Nothing exercised the ROUTING layer, so a bad regex,
+// a wrong param name or a missing decodeURIComponent would pass every gate.
+// 404 = route missing. 401 = route exists and is protected.
+for (const path of ['/api/content/' + 'sid200ok.github.io', '/api/inbox/' + 'sid200ok.github.io']) {
+  const c = code([st.url + path]);
+  c === '401' ? ok('GET ' + path + ' routed + gated (401)') : fail('GET ' + path + ' -> ' + c + ' (404 means the route is missing)');
+}
+for (const path of ['/api/content/write', '/api/inbox/triage', '/api/inbox/delete']) {
+  const c = code(['-X', 'POST', '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + st.token, st.url + path, '-d', '{}']);
+  c === '401' ? ok('POST ' + path + ' routed + gated (401)') : fail('POST ' + path + ' -> ' + c + ' (404 means the route is missing)');
+}
 code([st.url + '/api/sites']) === '401' ? ok('GET /api/sites without session -> 401') : fail('sites not gated');
 code(['-X', 'POST', st.url + '/api/sites', '-d', '{}']) === '403' ? ok('POST without CSRF -> 403') : fail('CSRF not enforced');
 code(['-X', 'POST', '-H', 'x-portrox-token: wrong', st.url + '/api/sites', '-d', '{}']) === '403' ? ok('wrong CSRF -> 403') : fail('wrong CSRF accepted');
