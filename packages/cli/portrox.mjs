@@ -78,9 +78,24 @@ async function waitState(prevPid, ms = 20000) {
   return null;
 }
 
+async function healthy(url) {
+  try {
+    const r = await fetch(url + '/api/health', { signal: AbortSignal.timeout(3000) });
+    return r.ok;
+  } catch { return false; }
+}
+
 async function cmdStart() {
   const s = readState();
-  if (s && ours(s.pid)) { ok('already ACTIVE'); say('  ' + C.c + s.url + C.x); return; }
+  if (s && ours(s.pid)) {
+    // PID ownership alone does not prove responsiveness. A hung daemon was
+    // reported ACTIVE, which forced release.sh to use `restart` and rebind a
+    // new port on every run. Now: healthy -> leave it alone and keep the port;
+    // ours but not answering -> stop and respawn.
+    if (await healthy(s.url)) { ok('already ACTIVE'); say('  ' + C.c + s.url + C.x); return; }
+    warn('PID ' + s.pid + ' is Portrox but not responding - restarting');
+    await cmdStop();
+  }
   if (s) clearState();
   if (existsSync(DAEMON) === false) die('daemon missing: ' + DAEMON);
   const fd = openSync(LOG, 'a');

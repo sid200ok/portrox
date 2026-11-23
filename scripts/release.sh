@@ -67,8 +67,9 @@ echo "== daemon =="
 # publish uses the modules directly and needs no daemon, but verify-daemon does.
 # After a WSL restart the process is gone and state.json is stale, which blocked
 # the release with ten misleading product failures. restart refuses to signal a
-# recycled PID and clears stale state, so this is safe.
-node packages/cli/portrox.mjs restart || { echo "BLOCKED: daemon would not start"; exit 1; }
+# recycled PID and clears stale state. `start` is now health-aware: it keeps a
+# healthy daemon and its port, and respawns only if the PID is ours but silent.
+node packages/cli/portrox.mjs start || { echo "BLOCKED: daemon would not start"; exit 1; }
 sleep 1
 
 echo "== full suite =="
