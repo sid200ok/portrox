@@ -90,7 +90,7 @@ for (const path of ['/api/content/' + 'sid200ok.github.io', '/api/inbox/' + 'sid
   const c = code([st.url + path]);
   c === '401' ? ok('GET ' + path + ' routed + gated (401)') : fail('GET ' + path + ' -> ' + c + ' (404 means the route is missing)');
 }
-for (const path of ['/api/content/write', '/api/inbox/triage', '/api/inbox/delete', '/api/media/upload', '/api/media/delete', '/api/media/avatar', '/api/intro/preview', '/api/intro/save', '/api/backup/key/generate', '/api/backup/key/confirm', '/api/backup/key/clear']) {
+for (const path of ['/api/content/write', '/api/inbox/triage', '/api/inbox/delete', '/api/media/upload', '/api/media/delete', '/api/media/avatar', '/api/intro/preview', '/api/intro/save', '/api/backup/key/generate', '/api/backup/key/confirm', '/api/backup/key/clear', '/api/backup/run']) {
   const c = code(['-X', 'POST', '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + st.token, st.url + path, '-d', '{}']);
   c === '401' ? ok('POST ' + path + ' routed + gated (401)') : fail('POST ' + path + ' -> ' + c + ' (404 means the route is missing)');
 }

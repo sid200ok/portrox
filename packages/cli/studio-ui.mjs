@@ -792,7 +792,7 @@ function vSettings(){
       +'<div class="row wrap"><button class="btn pri" data-act="bkgen">'+(K.configured?'Regenerate key':'Generate key')+'</button>'
       +'<button class="btn" data-act="bkstatus">Refresh status</button>'
       +(K.configured&&!K.custody_confirmed?'<button class="btn" data-act="bkconfirm">I saved it in my password manager</button>':'')
-      +(K.configured?'<button class="btn danger" data-act="bkclear">Clear key</button>':'')+'</div>'
+      +(K.configured?'<button class="btn" data-act="bkrun">Back up now</button>':'')+(K.configured?'<button class="btn danger" data-act="bkreplace">Back up and discard older bundles</button>':'')+(K.configured?'<button class="btn danger" data-act="bkclear">Clear key</button>':'')+'</div>'+(K.run?'<div class="hr"></div><div class="field"><label>Backup result</label><pre class="log" style="max-height:260px">'+h(K.run)+'</pre></div>':'')
       +(K.fresh?'<div class="hr"></div><div class="alert warn"><b>Copy this now. It is shown once.</b></div>'
         +'<pre class="log" id="bk-key" style="user-select:all">'+h(K.fresh)+'</pre>'
         +'<div class="row wrap"><button class="btn" data-act="bkcopy">Copy to clipboard</button></div>'
@@ -898,6 +898,13 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='bkrun'||a==='bkreplace'){var rep=(a==='bkreplace');
+    if(rep&&!confirm('This keeps ONLY the newest bundle and discards every older offsite bundle. Continue?'))return;
+    S.bk=S.bk||{};S.bk.run='running ...';render();
+    return api('/api/backup/run',{replace:rep}).then(function(j){
+      var NL=String.fromCharCode(10);S.bk.run=(j.ok?'OK':'FAILED')+NL+(j.steps||[]).map(function(x){return (x.ok?'OK   ':'FAIL ')+x.script+NL+x.log}).join(NL+NL);
+      toast(j.ok?'Backup complete':'Backup failed',j.ok?'ok':'err');render()})
+      .catch(function(x){S.bk.run='FAILED: '+x.message;toast(x.message,'err');render()})}
   if(a==='bkstatus'){S.bk=S.bk||{};return api('/api/backup/key').then(function(j){S.bk=Object.assign(S.bk,j);S.bk.fresh=null;render()}).catch(function(x){S.bk.err=x.message;render()})}
   if(a==='bkgen'){S.bk=S.bk||{};if(S.bk.configured&&!confirm('Regenerating makes every existing offsite bundle undecryptable. Continue?'))return;
     return api('/api/backup/key/generate',{}).then(function(j){S.bk.fresh=j.key;S.bk.configured=true;S.bk.created_at=j.created_at;S.bk.custody_confirmed=false;S.bk.err='';render()}).catch(function(x){S.bk.err=x.message;render()})}

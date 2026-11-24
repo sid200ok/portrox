@@ -22,7 +22,8 @@ import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API
 import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API
 import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API
 import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API
-import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API // PORTROX_GH_ROUTES
+import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API
+import * as BR from './backup-run.mjs'; // PORTROX_BACKUP_RUN // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -444,6 +445,11 @@ const server = createServer(async (req, res) => {
       }
 
       /* ---------- Backup key custody (UI only) ---------- */
+      if (p === '/api/backup/run') {
+        try { return json(200, await BR.runBackup(REPO, { replace: b.replace === true })); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/backup/key/generate') {
         try { return json(200, BK.generateKey()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }

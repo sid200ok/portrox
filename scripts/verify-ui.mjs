@@ -67,6 +67,10 @@ try {
   app.includes('PORTROX_MEDIA_TAB') ? ok('media tab present') : fail('media tab missing - backend-only module');
   app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
+  app.includes('/api/backup/run') ? ok('UI calls /api/backup/run') : fail('UI never calls /api/backup/run');
+  for (const act of ['bkrun','bkreplace']) {
+    app.includes(act) ? ok('backup action ' + act) : fail('backup action ' + act + ' missing');
+  }
   for (const ep of ['/api/backup/key','/api/backup/key/generate','/api/backup/key/confirm','/api/backup/key/clear']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }
