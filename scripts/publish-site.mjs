@@ -125,11 +125,28 @@ mark.ok ? ok('is_published=true') : die('markPublished: ' + mark.error);
 cfg.registered = true; cfg.published = true;
 writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
 
-/* 7. request a build, then poll. Switching source alone does not build. */
-try {
-  const req = await GH.pagesRequestBuild(repoFull);
-  ok('build requested (' + (req.status || 'queued') + ')');
-} catch (e) { note('build request refused: ' + e.message + ' - polling existing build'); }
+/* 7. The PUSH already triggers a Pages build once the source points at
+   gh-pages. Requesting another unconditionally created a SECOND build for the
+   same commit; GitHub allows one concurrent build per repo, so it cancelled the
+   first and the cancelled run surfaced as 'errored: Page build failed.' on EVERY
+   publish. Only request a build when none exists for our commit - which is the
+   first-publish case, where the source was just switched. */
+let seen = null;
+for (let i = 0; i < 4; i++) {
+  try {
+    const b = await GH.pagesLatestBuild(repoFull);
+    if (String(b.commit || '') === pushedSha) { seen = b; break; }
+  } catch {}
+  await sleep(4000);
+}
+if (seen) {
+  ok('push already triggered a build (' + (seen.status || 'queued') + ') - not requesting a duplicate');
+} else {
+  try {
+    const req = await GH.pagesRequestBuild(repoFull);
+    ok('no build for our commit yet - requested one (' + (req.status || 'queued') + ')');
+  } catch (e) { note('build request refused: ' + e.message + ' - polling'); }
+}
 
 let build = null;
 let retried = false;
