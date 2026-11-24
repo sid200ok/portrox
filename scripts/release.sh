@@ -27,37 +27,18 @@ echo "== local backup =="
 node scripts/backup-db.mjs || { echo "BLOCKED: local backup failed"; exit 1; }
 
 echo "== offsite backup =="
+# No terminal secret prompts. The key is generated and held by the Studio.
 if [ "${PORTROX_SKIP_OFFSITE:-0}" = "1" ]; then
   echo "OFFSITE SKIPPED (PORTROX_SKIP_OFFSITE=1)"
   OFFSITE_STATE="skipped by request"
+elif node -e 'import("./packages/cli/backup-key.mjs").then(m=>process.exit(m.hasKey()?0:1))'; then
+  PP_CUSTODY="Studio key store (~/.portrox/backup-key.json, 0600)"
+  if node scripts/backup-offsite.mjs; then OFFSITE_STATE="done"
+  else echo "BLOCKED: offsite backup failed"; exit 1; fi
 else
-  if [ -n "${PORTROX_BACKUP_PASSPHRASE:-}" ]; then
-    echo "passphrase: environment"
-    PP_CUSTODY="environment"
-  elif [ -f "$PP_FILE" ]; then
-    PORTROX_BACKUP_PASSPHRASE="$(cat "$PP_FILE")"
-    export PORTROX_BACKUP_PASSPHRASE
-    echo "passphrase: $PP_FILE"
-    PP_CUSTODY="ON DISK - copy to a password manager, then shred -u $PP_FILE"
-    echo "REMINDER: copy it to your password manager, then shred -u $PP_FILE"
-  elif [ -t 0 ]; then
-    read -r -s -p "Offsite backup passphrase (input hidden, empty to skip): " PORTROX_BACKUP_PASSPHRASE
-    echo
-    PP_CUSTODY="entered at prompt"
-    export PORTROX_BACKUP_PASSPHRASE
-  fi
-  if [ -n "${PORTROX_BACKUP_PASSPHRASE:-}" ]; then
-    if node scripts/backup-offsite.mjs; then
-      OFFSITE_STATE="done"
-    else
-      echo "BLOCKED: offsite backup failed - fix it or set PORTROX_SKIP_OFFSITE=1"
-      exit 1
-    fi
-  else
-    echo "OFFSITE SKIPPED - no passphrase available."
-    echo "Your only backups are on this disk. Supply one next time."
-    OFFSITE_STATE="SKIPPED (no passphrase)"
-  fi
+  echo "OFFSITE SKIPPED - no key in the store."
+  echo "ACTION: Studio -> Settings -> Backup -> Generate key, save it to your password manager, confirm."
+  OFFSITE_STATE="SKIPPED (no key - see Studio Settings Backup)"
 fi
 
 echo "== publish =="

@@ -24,7 +24,8 @@ import { loadConfig } from '../packages/cli/config-store.mjs';
 import { resolveGitAuth } from '../packages/cli/git-auth.mjs';
 import * as GH from '../packages/cli/github-ops.mjs';
 
-const PASS = process.env.PORTROX_BACKUP_PASSPHRASE || '';
+import { readKey } from '../packages/cli/backup-key.mjs';
+const PASS = process.env.PORTROX_BACKUP_PASSPHRASE || readKey();
 const MAGIC = 'PXB1';
 const keyOf = (pass, salt) => scryptSync(pass, salt, 32, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 
@@ -45,14 +46,14 @@ function open(buf, pass) {
 const decIdx = process.argv.indexOf('--decrypt');
 if (decIdx > 0) {
   const f = process.argv[decIdx + 1];
-  if (!PASS) { console.error('FAIL set PORTROX_BACKUP_PASSPHRASE'); process.exit(1); }
+  if (!PASS) { console.error('FAIL no backup key - Studio -> Settings -> Backup'); process.exit(1); }
   const obj = open(readFileSync(f), PASS);
   console.log('OK   decrypted ' + f);
   console.log('     project ' + obj.project + ' taken ' + obj.taken_at + ' tables ' + Object.keys(obj.tables || {}).length);
   process.exit(0);
 }
 
-if (!PASS || PASS.length < 20) { console.error('FAIL set PORTROX_BACKUP_PASSPHRASE (>= 20 chars). Generate one and store it in your password manager.'); process.exit(1); }
+if (!PASS || PASS.length < 20) { console.error('FAIL no backup key. Studio -> Settings -> Backup -> Generate key.'); process.exit(1); }
 const c = loadConfig();
 const ref = c.supabase.default_project_ref;
 if (!ref) { console.error('FAIL no project'); process.exit(1); }

@@ -21,7 +21,8 @@ import * as GH from './github-ops.mjs';
 import * as CS from './content-store.mjs'; // PORTROX_CONTENT_API
 import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API
 import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API
-import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API // PORTROX_GH_ROUTES
+import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API
+import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -442,6 +443,17 @@ const server = createServer(async (req, res) => {
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }
 
+      /* ---------- Backup key custody (UI only) ---------- */
+      if (p === '/api/backup/key/generate') {
+        try { return json(200, BK.generateKey()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/backup/key/confirm') {
+        try { return json(200, BK.confirmCustody()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/backup/key/clear') {
+        try { return json(200, BK.clearKey(String(b.confirm || ''))); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/content/write') {
         try { return json(200, CS.writeContent(REPO, String(b.site || ''), String(b.file || ''), b.text)); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -473,6 +485,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      if (u.pathname === '/api/backup/key') return json(200, BK.status());
       const iw = u.pathname.match(/^\/api\/intro\/([^/]+)$/);
       if (iw) {
         try {

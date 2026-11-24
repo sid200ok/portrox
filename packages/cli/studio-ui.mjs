@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={bk:null,iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['backup','lock','Backup'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -782,6 +782,23 @@ function vSettings(){
       +(W.markdown?'<div class="hr"></div><div class="field"><label>Generated markdown ('+W.markdown.length+' chars)</label><pre class="log" style="max-height:240px">'+h(W.markdown)+'</pre></div>':'')
       +(W.current?'<div class="field"><label>Currently published intro</label><pre class="log" style="max-height:200px">'+h(W.current)+'</pre></div>':'')
       +'</div>';
+  } else if(S.sub==='backup'){
+    /* PORTROX_BACKUP_TAB — key custody in the browser, never a terminal prompt. */
+    var K=S.bk||{};
+    body='<div class="card"><header><h3>Offsite backup key</h3>'
+      +(K.configured?'<span class="pill ok"><span class="dot"></span>key in store</span>':'<span class="pill warn">no key</span>')+'</header>'
+      +'<p class="desc">Backups are encrypted before leaving this machine and pushed to a private repo. The key is generated here and stored at <span class="mono">~/.portrox/backup-key.json</span> (0600). You must ALSO save it in your password manager - if this machine dies and only the store had the key, the offsite bundles cannot be decrypted.</p>'
+      +(K.configured?'<p class="note">Created '+h(K.created_at||'')+' · custody '+(K.custody_confirmed?'<b>confirmed</b>':'<b>NOT confirmed</b>')+'</p>':'')
+      +'<div class="row wrap"><button class="btn pri" data-act="bkgen">'+(K.configured?'Regenerate key':'Generate key')+'</button>'
+      +'<button class="btn" data-act="bkstatus">Refresh status</button>'
+      +(K.configured&&!K.custody_confirmed?'<button class="btn" data-act="bkconfirm">I saved it in my password manager</button>':'')
+      +(K.configured?'<button class="btn danger" data-act="bkclear">Clear key</button>':'')+'</div>'
+      +(K.fresh?'<div class="hr"></div><div class="alert warn"><b>Copy this now. It is shown once.</b></div>'
+        +'<pre class="log" id="bk-key" style="user-select:all">'+h(K.fresh)+'</pre>'
+        +'<div class="row wrap"><button class="btn" data-act="bkcopy">Copy to clipboard</button></div>'
+        +'<p class="hint">Paste it into your password manager as <b>Portrox offsite backup key</b>, save, then click the confirm button above. Regenerating makes older bundles undecryptable.</p>':'')
+      +(K.err?'<div class="alert err" style="margin-top:12px">'+h(K.err)+'</div>':'')
+      +'</div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -881,6 +898,13 @@ function act(a,id,btn){
     if(m!=='GET'&&!confirm(m+' '+ep+' — this may modify or delete data. Continue?'))return;
     return api('/api/gh/console',{endpoint:ep,method:m}).then(function(j){S.gh.console=j;render();toast('Executed','ok')}).catch(function(x){S.gh.console={error:x.message};render();toast(x.message,'err')})}
   if(a==='sbadv')return api('/api/supabase/advisors',{}).then(function(j){S.adv=j;render();var n=((j.security&&j.security.lints)||[]).filter(function(l){return /ERROR|WARN/i.test(l.level||'')}).length;toast(n+' security finding(s) at ERROR/WARN',n?'err':'ok')}).catch(function(x){toast(x.message,'err')});
+  if(a==='bkstatus'){S.bk=S.bk||{};return api('/api/backup/key').then(function(j){S.bk=Object.assign(S.bk,j);S.bk.fresh=null;render()}).catch(function(x){S.bk.err=x.message;render()})}
+  if(a==='bkgen'){S.bk=S.bk||{};if(S.bk.configured&&!confirm('Regenerating makes every existing offsite bundle undecryptable. Continue?'))return;
+    return api('/api/backup/key/generate',{}).then(function(j){S.bk.fresh=j.key;S.bk.configured=true;S.bk.created_at=j.created_at;S.bk.custody_confirmed=false;S.bk.err='';render()}).catch(function(x){S.bk.err=x.message;render()})}
+  if(a==='bkcopy'){var t=$('bk-key').textContent;return navigator.clipboard.writeText(t).then(function(){toast('Copied - paste into your password manager','ok')}).catch(function(){toast('Select the text and copy manually','err')})}
+  if(a==='bkconfirm'){return api('/api/backup/key/confirm',{}).then(function(j){S.bk=Object.assign(S.bk,j);S.bk.fresh=null;toast('Custody confirmed','ok');render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='bkclear'){if(prompt('Type CLEAR to remove the key from this machine:')!=='CLEAR')return;
+    return api('/api/backup/key/clear',{confirm:'CLEAR'}).then(function(){S.bk={};toast('Key cleared','info');render()}).catch(function(x){toast(x.message,'err')})}
   if(a==='iwload'){var s=$('iw-site').value;S.iw=S.iw||{};S.iw.site=s;S.iw.err='';
     return api('/api/intro/'+encodeURIComponent(s)).then(function(j){S.iw.current=j.markdown;S.iw.defaults=j.defaults;render()}).catch(function(x){S.iw.err=x.message;render()})}
   if(a==='iwpreview'||a==='iwsave'){var s=$('iw-site').value;
