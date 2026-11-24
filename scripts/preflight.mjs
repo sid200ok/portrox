@@ -34,7 +34,7 @@ const need = [
   'scripts/supabase-ops.mjs', 'scripts/harden-apply.mjs', 'scripts/sync-mirrors.mjs',
   'scripts/apply-migration.mjs', 'scripts/clean-probes.mjs', 'scripts/check-profile.mjs', 'scripts/check-contact.mjs',
   'scripts/publish-site.mjs', 'scripts/audit-db.mjs', 'scripts/restore-db.mjs', 'scripts/backup-db.mjs', 'scripts/inventory.mjs', 'scripts/release.sh', 'scripts/run-gate.mjs', 'scripts/verify-intro.mjs', 'packages/cli/intro-wizard.mjs', 'scripts/reconcile-versions.mjs', 'scripts/verify-media.mjs', 'packages/cli/media-store.mjs', 'scripts/verify-inbox.mjs', 'packages/cli/inbox-store.mjs',
-  'docs/UI-TO-TERMINAL.md',
+  'docs/UI-TO-TERMINAL.md', 'docs/LAUNCH.md',
   'sites/sid200ok.github.io/site.json',
   'sites/sid200ok.github.io/content/intro.md',
   'sites/sid200ok.github.io/data/profile.json',

@@ -132,22 +132,38 @@ try {
 } catch (e) { note('build request refused: ' + e.message + ' - polling existing build'); }
 
 let build = null;
-for (let i = 0; i < 24; i++) {
+let retried = false;
+for (let i = 0; i < 30; i++) {
   await sleep(8000);
-  try { build = await GH.pagesLatestBuild(repoFull); } catch (e) { note('latest build: ' + e.message); continue; }
+  try { build = await GH.pagesLatestBuild(repoFull); }
+  catch (e) { note('latest build: ' + e.message); continue; }
   const st = String(build.status || '');
-  console.log('     build ' + (i + 1) + ': ' + st + (build.error ? ' :: ' + build.error : ''));
+  const sha = String(build.commit || '');
+  const mine = pushedSha && sha === pushedSha;
+  console.log('     build ' + (i + 1) + ': ' + st + ' for ' + (sha.slice(0, 8) || '?') + (mine ? ' (ours)' : ' (older)') + (build.error ? ' :: ' + build.error : ''));
+  // A build for an OLDER commit tells us nothing about ours. Keep waiting.
+  if (!mine) continue;
   if (st === 'built') break;
-  if (st === 'errored') die('Pages build errored: ' + (build.error || 'unknown'));
-}
-if (!build || build.status !== 'built') note('build not confirmed built yet - re-run verify-live shortly');
-else {
-  // A2: an older build can satisfy the poll. Prove it built OUR commit.
-  if (pushedSha && String(build.commit || '') !== pushedSha) {
-    die('Pages built ' + String(build.commit || '').slice(0, 8) + ' but we pushed ' + pushedSha.slice(0, 8) + ' - stale build');
+  if (st === 'errored') {
+    if (!retried) {
+      retried = true;
+      note('Pages build errored for our commit - requesting one retry');
+      try { await GH.pagesRequestBuild(repoFull); } catch (e) { note('retry request refused: ' + e.message); }
+      continue;
+    }
+    console.error('FAIL Pages build errored twice for ' + pushedSha.slice(0, 8) + ': ' + (build.error || 'unknown'));
+    console.error('ACTION read the real cause:');
+    console.error('  gh api "repos/' + repoFull + '/actions/runs?per_page=15" --jq \'.workflow_runs[] | "\(.id) \(.name) \(.conclusion)"\'');
+    console.error('  gh run view <id> --repo ' + repoFull + ' --log-failed');
+    process.exit(1);
   }
-  ok('Pages built the pushed commit ' + pushedSha.slice(0, 8));
 }
+if (!build || build.status !== 'built' || String(build.commit || '') !== pushedSha) {
+  console.error('FAIL Pages did not build ' + pushedSha.slice(0, 8) + ' within the wait window');
+  console.error('     last seen: ' + JSON.stringify(build || {}).slice(0, 240));
+  process.exit(1);
+}
+ok('Pages built the pushed commit ' + pushedSha.slice(0, 8));
 
 /* 8. best-effort cleanup. NEVER disable GitHub's own Pages builder. */
 for (const wf of await GH.listWorkflows(repoFull)) {
