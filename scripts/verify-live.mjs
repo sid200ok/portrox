@@ -65,8 +65,16 @@ ok('served by Portrox');
     note('dist index.html absent - run a build first; artifact equality not assessed');
   } else {
     const local = readFileSync(localPath, 'utf8');
-    if (local === home.body) ok('live homepage byte-identical to dist (' + local.length + ' chars)');
-    else fail('live homepage DIFFERS from dist (local ' + local.length + ' vs live ' + home.body.length + ' chars) - stale build or CDN cache');
+    let body = home.body, tries = 0;
+    while (body !== local && tries < 6) {
+      tries++;
+      note('live differs from dist - a Pages build may be landing; retry ' + tries + '/6 in 10s');
+      await new Promise(r => setTimeout(r, 10000));
+      const again = await get('/');
+      if (again.status === 200) body = again.body;
+    }
+    if (body === local) ok('live homepage byte-identical to dist (' + local.length + ' chars)' + (tries ? ' after ' + tries + ' retries' : ''));
+    else fail('live homepage DIFFERS from dist (local ' + local.length + ' vs live ' + body.length + ' chars) after ' + tries + ' retries - stale build or CDN cache');
   }
 }
 

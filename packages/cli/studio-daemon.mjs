@@ -453,6 +453,10 @@ const server = createServer(async (req, res) => {
       if (p === '/api/backup/key/generate') {
         try { return json(200, BK.generateKey()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }
+      if (p === '/api/backup/key/copy') {
+        try { return json(200, BK.copyKey()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/backup/key/confirm') {
         try { return json(200, BK.confirmCustody()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }

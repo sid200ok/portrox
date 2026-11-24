@@ -68,6 +68,9 @@ try {
   app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
   app.includes('/api/backup/run') ? ok('UI calls /api/backup/run') : fail('UI never calls /api/backup/run');
+  app.includes('bk-key') ? fail('UI still renders the raw key in the DOM') : ok('UI never renders the raw key');
+  app.includes('/api/backup/key/copy') ? ok('UI calls /api/backup/key/copy') : fail('UI never calls /api/backup/key/copy');
+  app.includes('S.bk.fresh') ? fail('backup panel still holds a raw key in state') : ok('backup panel never holds a raw key');
   for (const act of ['bkrun','bkreplace']) {
     app.includes(act) ? ok('backup action ' + act) : fail('backup action ' + act + ' missing');
   }

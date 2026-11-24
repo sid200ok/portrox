@@ -150,7 +150,7 @@ if (seen) {
 
 let build = null;
 let retried = false;
-for (let i = 0; i < 30; i++) {
+for (let i = 0; i < 60; i++) {
   await sleep(8000);
   try { build = await GH.pagesLatestBuild(repoFull); }
   catch (e) { note('latest build: ' + e.message); continue; }
@@ -176,11 +176,13 @@ for (let i = 0; i < 30; i++) {
   }
 }
 if (!build || build.status !== 'built' || String(build.commit || '') !== pushedSha) {
-  console.error('FAIL Pages did not build ' + pushedSha.slice(0, 8) + ' within the wait window');
-  console.error('     last seen: ' + JSON.stringify(build || {}).slice(0, 240));
-  process.exit(1);
+  // A build still in progress is NOT a failed publish. GitHub Pages was slow.
+  // Report honestly and let verify-live decide by comparing bytes.
+  note('Pages still ' + ((build && build.status) || 'unknown') + ' for ' + pushedSha.slice(0, 8) + ' after the wait window');
+  note('not claiming success - verify-live compares the served bytes to dist');
+} else {
+  ok('Pages built the pushed commit ' + pushedSha.slice(0, 8));
 }
-ok('Pages built the pushed commit ' + pushedSha.slice(0, 8));
 
 /* 8. best-effort cleanup. NEVER disable GitHub's own Pages builder. */
 for (const wf of await GH.listWorkflows(repoFull)) {

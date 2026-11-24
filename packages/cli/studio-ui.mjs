@@ -793,10 +793,10 @@ function vSettings(){
       +'<button class="btn" data-act="bkstatus">Refresh status</button>'
       +(K.configured&&!K.custody_confirmed?'<button class="btn" data-act="bkconfirm">I saved it in my password manager</button>':'')
       +(K.configured?'<button class="btn" data-act="bkrun">Back up now</button>':'')+(K.configured?'<button class="btn danger" data-act="bkreplace">Back up and discard older bundles</button>':'')+(K.configured?'<button class="btn danger" data-act="bkclear">Clear key</button>':'')+'</div>'+(K.run?'<div class="hr"></div><div class="field"><label>Backup result</label><pre class="log" style="max-height:260px">'+h(K.run)+'</pre></div>':'')
-      +(K.fresh?'<div class="hr"></div><div class="alert warn"><b>Copy this now. It is shown once.</b></div>'
-        +'<pre class="log" id="bk-key" style="user-select:all">'+h(K.fresh)+'</pre>'
-        +'<div class="row wrap"><button class="btn" data-act="bkcopy">Copy to clipboard</button></div>'
-        +'<p class="hint">Paste it into your password manager as <b>Portrox offsite backup key</b>, save, then click the confirm button above. Regenerating makes older bundles undecryptable.</p>':'')
+      +(K.via?'<div class="hr"></div><div class="alert warn"><b>The key is never displayed.</b> It is on your clipboard via '+h(K.via)+'. Paste it into your password manager now.</div>'
+        +(K.configured?'<p class="note">Fingerprint <span class="mono">'+h(K.fingerprint||'')+'</span> - compare it with the entry you saved. Never paste the key into a chat, ticket or screenshot.</p>':'')
+        +'<div class="row wrap"><button class="btn" data-act="bkcopy">Copy again</button></div>'
+        +'<p class="hint">Save it as <b>Portrox offsite backup key</b>, then click the confirm button above. Regenerating makes older bundles undecryptable.</p>':'')
       +(K.err?'<div class="alert err" style="margin-top:12px">'+h(K.err)+'</div>':'')
       +'</div>';
   } else if(S.sub==='security'){
@@ -905,11 +905,11 @@ function act(a,id,btn){
       var NL=String.fromCharCode(10);S.bk.run=(j.ok?'OK':'FAILED')+NL+(j.steps||[]).map(function(x){return (x.ok?'OK   ':'FAIL ')+x.script+NL+x.log}).join(NL+NL);
       toast(j.ok?'Backup complete':'Backup failed',j.ok?'ok':'err');render()})
       .catch(function(x){S.bk.run='FAILED: '+x.message;toast(x.message,'err');render()})}
-  if(a==='bkstatus'){S.bk=S.bk||{};return api('/api/backup/key').then(function(j){S.bk=Object.assign(S.bk,j);S.bk.fresh=null;render()}).catch(function(x){S.bk.err=x.message;render()})}
+  if(a==='bkstatus'){S.bk=S.bk||{};return api('/api/backup/key').then(function(j){S.bk=Object.assign(S.bk,j);render()}).catch(function(x){S.bk.err=x.message;render()})}
   if(a==='bkgen'){S.bk=S.bk||{};if(S.bk.configured&&!confirm('Regenerating makes every existing offsite bundle undecryptable. Continue?'))return;
-    return api('/api/backup/key/generate',{}).then(function(j){S.bk.fresh=j.key;S.bk.configured=true;S.bk.created_at=j.created_at;S.bk.custody_confirmed=false;S.bk.err='';render()}).catch(function(x){S.bk.err=x.message;render()})}
-  if(a==='bkcopy'){var t=$('bk-key').textContent;return navigator.clipboard.writeText(t).then(function(){toast('Copied - paste into your password manager','ok')}).catch(function(){toast('Select the text and copy manually','err')})}
-  if(a==='bkconfirm'){return api('/api/backup/key/confirm',{}).then(function(j){S.bk=Object.assign(S.bk,j);S.bk.fresh=null;toast('Custody confirmed','ok');render()}).catch(function(x){toast(x.message,'err')})}
+    return api('/api/backup/key/generate',{}).then(function(j){S.bk.configured=true;S.bk.created_at=j.created_at;S.bk.custody_confirmed=false;S.bk.fingerprint=j.fingerprint;S.bk.via=j.via;S.bk.err=j.copied?'':'No clipboard tool found - install xclip or wl-copy';render()}).catch(function(x){S.bk.err=x.message;render()})}
+  if(a==='bkcopy'){return api('/api/backup/key/copy',{}).then(function(j){toast('Copied via '+j.via+' - paste into your password manager','ok')}).catch(function(x){toast(x.message,'err')})}
+  if(a==='bkconfirm'){return api('/api/backup/key/confirm',{}).then(function(j){S.bk=Object.assign(S.bk,j);toast('Custody confirmed','ok');render()}).catch(function(x){toast(x.message,'err')})}
   if(a==='bkclear'){if(prompt('Type CLEAR to remove the key from this machine:')!=='CLEAR')return;
     return api('/api/backup/key/clear',{confirm:'CLEAR'}).then(function(){S.bk={};toast('Key cleared','info');render()}).catch(function(x){toast(x.message,'err')})}
   if(a==='iwload'){var s=$('iw-site').value;S.iw=S.iw||{};S.iw.site=s;S.iw.err='';
