@@ -30,7 +30,8 @@ No terminal command handles a secret. Settings -> Backup does all of it.
 
 ## 4. Real image
 - [ ] Studio -> Settings -> Media -> upload a real photo (PNG/JPEG/WebP)
-- [ ] Set as avatar -> Content -> Save and rebuild -> Publish
+- [ ] Set as avatar, then Studio -> your site -> Publish. Publishing re-renders,
+      so the avatar ships without a separate build step.
 - [ ] Reload the live site: the avatar renders
 - [ ] Try uploading a .svg: it must be refused
 
@@ -49,6 +50,8 @@ No terminal command handles a secret. Settings -> Backup does all of it.
 - [ ] Confirm the lead reaches your Inbox
 
 ## Sign-off
-All boxes ticked -> the site is launch-ready. Record the date and the commit:
+All boxes ticked -> the site is launch-ready. Record both:
 
-    git rev-parse --short HEAD
+    git rev-parse --short HEAD && date -u +%Y-%m-%d
+
+Signed off: ____________________  commit ____________  date ____________
