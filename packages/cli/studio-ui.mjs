@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={ai:null,bk:null,iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={pay:null,ai:null,bk:null,iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['backup','lock','Backup'],['ai','grid','AI'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['backup','lock','Backup'],['ai','grid','AI'],['pay','key','Payments'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -831,6 +831,34 @@ function vSettings(){
         +'<div class="grid g2">'+boxes+'</div><div class="row wrap"><button class="btn pri" data-act="aitasks">Save task assignment</button></div>':'')
       +(A.err?'<div class="alert err" style="margin-top:12px">'+h(A.err)+'</div>':'')
       +'</div>';
+  } else if(S.sub==='pay'){
+    /* PORTROX_PAY_TAB — provider registry; any country via hosted_link. */
+    var Y=S.pay||{},cat=Y.catalogue||[],stt=Y.state||{},ps=stt.providers||[];
+    var cards=cat.map(function(c){
+      var st=ps.filter(function(x){return x.id===c.id})[0]||{};
+      var inputs=c.fields.map(function(f){
+        var val=f.secret?'':((st.public||{})[f.k]||'');
+        var ph=f.secret?((st.secret_set||{})[f.k]?'stored (fingerprint '+((st.fingerprints||{})[f.k]||'')+') - blank keeps it':'required'):(f.req?'required':'optional');
+        return '<div class="field"><label>'+h(f.k)+(f.req?' *':'')+'</label><input class="inp'+(f.secret?'':' pay-pub')+'" data-p="'+h(c.id)+'" data-k="'+h(f.k)+'"'+(f.secret?' type="password"':'')+' value="'+h(val)+'" placeholder="'+h(ph)+'"></div>'}).join('');
+      return '<div class="card"><header><h3>'+h(c.label)+'</h3>'
+        +(st.enabled?'<span class="pill ok"><span class="dot"></span>enabled</span>':(st.configured?'<span class="pill warn">configured, disabled</span>':'<span class="pill mute">not configured</span>'))+'</header>'
+        +'<p class="desc">Methods: '+h(c.methods.join(', '))+' · region '+h(c.region)+(c.webhook?' · signature-verified webhooks':' · no webhook scheme claimed')+'</p>'
+        +'<div class="grid g2">'+inputs
+        +'<div class="field"><label>Countries (ISO-2, comma separated, blank = any)</label><input class="inp pay-list" data-p="'+h(c.id)+'" data-k="countries" value="'+h((st.countries||[]).join(','))+'"></div>'
+        +'<div class="field"><label>Currencies (ISO-3, blank = any)</label><input class="inp pay-list" data-p="'+h(c.id)+'" data-k="currencies" value="'+h((st.currencies||[]).join(','))+'"></div></div>'
+        +'<div class="row wrap"><button class="btn pri" data-act="paysave" data-id="'+h(c.id)+'">Save</button>'
+        +'<button class="btn" data-act="paytoggle" data-id="'+h(c.id)+'" data-on="'+(st.enabled?'0':'1')+'">'+(st.enabled?'Disable':'Enable')+'</button>'
+        +'<button class="btn" data-act="paydefault" data-id="'+h(c.id)+'">Make default</button>'
+        +(st.configured?'<button class="btn danger" data-act="payremove" data-id="'+h(c.id)+'">Remove</button>':'')+'</div></div>'}).join('');
+    body='<div class="card"><header><h3>Payment routing</h3><span class="pill mute">default '+h(stt.default||'none')+'</span></header>'
+      +'<p class="desc">First enabled provider matching country AND currency wins, in the order below. <b>hosted_link</b> works with ANY gateway that issues a checkout URL, so every country is covered without code. <b>manual</b> needs no gateway at all.</p>'
+      +'<div class="field"><label>Priority order (comma separated provider ids)</label><input class="inp" id="pay-order" value="'+h((stt.order||[]).join(','))+'"></div>'
+      +'<div class="row wrap"><button class="btn" data-act="payorder">Save order</button></div>'
+      +'<div class="grid g2"><div class="field"><label>Test country</label><input class="inp" id="pay-cc" value="IN"></div>'
+      +'<div class="field"><label>Test currency</label><input class="inp" id="pay-cu" value="INR"></div></div>'
+      +'<div class="row wrap"><button class="btn" data-act="payroute">Test routing</button></div>'
+      +(Y.route?'<p class="note">Routed to <b>'+h(Y.route.provider)+'</b>'+(Y.route.fallback?' (default fallback)':' (matched)')+'</p>':'')
+      +(Y.err?'<div class="alert err">'+h(Y.err)+'</div>':'')+'</div>'+cards;
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -937,6 +965,24 @@ function act(a,id,btn){
       var NL=String.fromCharCode(10);S.bk.run=(j.ok?'OK':'FAILED')+NL+(j.steps||[]).map(function(x){return (x.ok?'OK   ':'FAIL ')+x.script+NL+x.log}).join(NL+NL);
       toast(j.ok?'Backup complete':'Backup failed',j.ok?'ok':'err');render()})
       .catch(function(x){S.bk.run='FAILED: '+x.message;toast(x.message,'err');render()})}
+  if(a==='payrefresh'){S.pay=S.pay||{};return api('/api/pay').then(function(j){S.pay=Object.assign(S.pay,j);S.pay.err='';render()}).catch(function(x){S.pay.err=x.message;render()})}
+  if(a==='paysave'){var id=btn.getAttribute('data-id'),cfg={},nl=document.querySelectorAll('.inp[data-p="'+id+'"]');
+    for(var i=0;i<nl.length;i++){var k=nl[i].getAttribute('data-k'),v=nl[i].value;
+      if(k==='countries'||k==='currencies'){cfg[k]=v.split(',').map(function(x){return x.trim()}).filter(Boolean)}
+      else if(v!==''||!nl[i].type){cfg[k]=v}}
+    S.pay=S.pay||{};S.pay.err='';
+    return api('/api/pay/save',{id:id,config:cfg}).then(function(j){S.pay.state=j;toast(id+' saved','ok');render()}).catch(function(x){S.pay.err=x.message;toast(x.message,'err');render()})}
+  if(a==='paytoggle'){var id=btn.getAttribute('data-id'),on=btn.getAttribute('data-on')==='1';
+    return api('/api/pay/enable',{id:id,enabled:on}).then(function(j){S.pay.state=j;render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='paydefault'){var id=btn.getAttribute('data-id');
+    return api('/api/pay/default',{id:id}).then(function(j){S.pay.state=j;toast(id+' is default','ok');render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='payorder'){var o=$('pay-order').value.split(',').map(function(x){return x.trim()}).filter(Boolean);
+    return api('/api/pay/order',{order:o}).then(function(j){S.pay.state=j;toast('Order saved','ok');render()}).catch(function(x){toast(x.message,'err')})}
+  if(a==='payroute'){S.pay=S.pay||{};S.pay.err='';
+    return api('/api/pay/route?country='+encodeURIComponent($('pay-cc').value)+'&currency='+encodeURIComponent($('pay-cu').value))
+      .then(function(j){S.pay.route=j;render()}).catch(function(x){S.pay.err=x.message;S.pay.route=null;render()})}
+  if(a==='payremove'){var id=btn.getAttribute('data-id');if(prompt('Type the provider id to REMOVE it:')!==id)return;
+    return api('/api/pay/remove',{id:id,confirm:id}).then(function(j){S.pay.state=j;toast(id+' removed','info');render()}).catch(function(x){toast(x.message,'err')})}
   if(a==='airefresh'){S.ai=S.ai||{};return api('/api/ai').then(function(j){S.ai=Object.assign(S.ai,j);S.ai.err='';render()}).catch(function(x){S.ai.err=x.message;render()})}
   if(a==='aisave'){S.ai=S.ai||{};var k=$('ai-key').value;
     return api('/api/ai/save',{base_url:$('ai-url').value,api_key:k||undefined}).then(function(j){S.ai.status=j;$('ai-key').value='';toast('Provider saved','ok');return api('/api/ai').then(function(r){S.ai=Object.assign(S.ai,r);render()})}).catch(function(x){S.ai.err=x.message;render()})}

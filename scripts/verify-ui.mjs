@@ -68,6 +68,16 @@ try {
   app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
   app.includes('PORTROX_AI_TAB') ? ok('AI provider tab present') : fail('AI tab missing - backend-only module');
+  app.includes('PORTROX_PAY_TAB') ? ok('payments tab present') : fail('payments tab missing - backend-only module');
+  for (const ep of ['/api/pay','/api/pay/save','/api/pay/enable','/api/pay/default','/api/pay/order','/api/pay/remove','/api/pay/route']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const act of ['paysave','paytoggle','paydefault','payorder','payroute','payremove']) {
+    app.includes(act) ? ok('payment action ' + act) : fail('payment action ' + act + ' missing');
+  }
+  for (const id of ['pay-order','pay-cc','pay-cu']) {
+    app.includes(id) ? ok('payment control ' + id) : fail('payment control ' + id + ' missing');
+  }
   for (const ep of ['/api/ai','/api/ai/save','/api/ai/validate','/api/ai/select','/api/ai/test','/api/ai/tasks','/api/ai/clear']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }

@@ -24,7 +24,8 @@ import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API
 import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API
 import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API
 import * as BR from './backup-run.mjs'; // PORTROX_BACKUP_RUN
-import * as AI from './ai-provider.mjs'; // PORTROX_AI_API // PORTROX_GH_ROUTES
+import * as AI from './ai-provider.mjs'; // PORTROX_AI_API
+import * as PAY from './payment-providers.mjs'; // PORTROX_PAY_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -447,6 +448,23 @@ const server = createServer(async (req, res) => {
 
       /* ---------- Backup key custody (UI only) ---------- */
       /* ---------- AI provider ---------- */
+      /* ---------- Payments ---------- */
+      if (p === '/api/pay/save') {
+        try { return json(200, PAY.save(String(b.id || ''), b.config || {})); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/pay/enable') {
+        try { return json(200, PAY.setEnabled(String(b.id || ''), b.enabled === true)); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/pay/default') {
+        try { return json(200, PAY.setDefault(String(b.id || ''))); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/pay/order') {
+        try { return json(200, PAY.setOrder(b.order)); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/pay/remove') {
+        try { return json(200, PAY.remove(String(b.id || ''), String(b.confirm || ''))); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/ai/save') {
         try { return json(200, AI.saveProvider({ base_url: b.base_url, api_key: b.api_key })); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -517,6 +535,12 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      if (u.pathname === '/api/pay') return json(200, { catalogue: PAY.catalogue(), state: PAY.list() });
+      const pr = u.pathname.match(/^\/api\/pay\/route$/);
+      if (pr) {
+        try { return json(200, PAY.route({ country: u.searchParams.get('country') || '', currency: u.searchParams.get('currency') || '' })); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
       if (u.pathname === '/api/ai') return json(200, { status: AI.status(), models: AI.models(), catalogue: AI.TASKS, limits: AI.PARAM_LIMITS });
       if (u.pathname === '/api/backup/key') return json(200, BK.status());
       const iw = u.pathname.match(/^\/api\/intro\/([^/]+)$/);

@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
+step "payment registry and signatures"
+node scripts/run-gate.mjs scripts/verify-payments.mjs || stop "payment registry or signature verification is wrong"
+
 step "AI provider flow"
 node scripts/run-gate.mjs scripts/verify-ai-provider.mjs || stop "AI provider flow is not provable"
 
