@@ -67,8 +67,14 @@ try {
   const remote = rows(m).map(x => String(x.version || '')).filter(Boolean);
   const local = readdirSync('supabase/migrations').filter(f => f.endsWith('.sql')).map(f => f.split('_')[0]);
   const orphan = remote.filter(v => local.includes(v) === false);
+  const missing = local.filter(v => remote.includes(v) === false);
   ok('migrations recorded server-side: ' + remote.length + ' (local files: ' + local.length + ')');
   if (orphan.length) note('DRIFT: ' + orphan.length + ' remote version(s) have no local file: ' + orphan.join(', '));
+  // The reverse direction was missing. A CREATE OR REPLACE that failed (42P13,
+  // dropped parameter default) left a local file unapplied and the suite still
+  // said SUPABASE OK. An unapplied migration is a FAILURE, not a note.
+  if (missing.length) fail('UNAPPLIED local migration(s): ' + missing.join(', ') + ' - run: node scripts/apply-migration.mjs <file>');
+  else ok('every local migration is recorded server-side');
 } catch (e) { note('listMigrations unavailable: ' + e.message); }
 
 // Catalog evidence for deny-all classification.
