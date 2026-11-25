@@ -86,11 +86,11 @@ code([st.url + '/api/config']) === '401' ? ok('GET /api/config without session -
 // mentions the endpoints. Nothing exercised the ROUTING layer, so a bad regex,
 // a wrong param name or a missing decodeURIComponent would pass every gate.
 // 404 = route missing. 401 = route exists and is protected.
-for (const path of ['/api/content/' + 'sid200ok.github.io', '/api/inbox/' + 'sid200ok.github.io', '/api/media/' + 'sid200ok.github.io', '/api/intro/' + 'sid200ok.github.io', '/api/backup/key']) {
+for (const path of ['/api/content/' + 'sid200ok.github.io', '/api/inbox/' + 'sid200ok.github.io', '/api/media/' + 'sid200ok.github.io', '/api/intro/' + 'sid200ok.github.io', '/api/backup/key', '/api/ai']) {
   const c = code([st.url + path]);
   c === '401' ? ok('GET ' + path + ' routed + gated (401)') : fail('GET ' + path + ' -> ' + c + ' (404 means the route is missing)');
 }
-for (const path of ['/api/content/write', '/api/inbox/triage', '/api/inbox/delete', '/api/media/upload', '/api/media/delete', '/api/media/avatar', '/api/intro/preview', '/api/intro/save', '/api/backup/key/generate', '/api/backup/key/confirm', '/api/backup/key/clear', '/api/backup/key/copy', '/api/backup/run']) {
+for (const path of ['/api/content/write', '/api/inbox/triage', '/api/inbox/delete', '/api/media/upload', '/api/media/delete', '/api/media/avatar', '/api/intro/preview', '/api/intro/save', '/api/backup/key/generate', '/api/backup/key/confirm', '/api/backup/key/clear', '/api/backup/key/copy', '/api/backup/run', '/api/ai/save', '/api/ai/validate', '/api/ai/select', '/api/ai/test', '/api/ai/tasks', '/api/ai/clear']) {
   const c = code(['-X', 'POST', '-H', 'Content-Type: application/json', '-H', 'x-portrox-token: ' + st.token, st.url + path, '-d', '{}']);
   c === '401' ? ok('POST ' + path + ' routed + gated (401)') : fail('POST ' + path + ' -> ' + c + ' (404 means the route is missing)');
 }

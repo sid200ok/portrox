@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
+step "AI provider flow"
+node scripts/run-gate.mjs scripts/verify-ai-provider.mjs || stop "AI provider flow is not provable"
+
 step "intro wizard"
 node scripts/run-gate.mjs scripts/verify-intro.mjs || stop "intro wizard breaks the homepage heading invariant"
 

@@ -67,6 +67,17 @@ try {
   app.includes('PORTROX_MEDIA_TAB') ? ok('media tab present') : fail('media tab missing - backend-only module');
   app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
+  app.includes('PORTROX_AI_TAB') ? ok('AI provider tab present') : fail('AI tab missing - backend-only module');
+  for (const ep of ['/api/ai','/api/ai/save','/api/ai/validate','/api/ai/select','/api/ai/test','/api/ai/tasks','/api/ai/clear']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  for (const id of ['ai-url','ai-key','ai-model','ai-temp','ai-prompt']) {
+    app.includes(id) ? ok('AI control ' + id) : fail('AI control ' + id + ' missing');
+  }
+  for (const act of ['aisave','aivalidate','aiselect','aitest','aitasks','aiclear']) {
+    app.includes(act) ? ok('AI action ' + act) : fail('AI action ' + act + ' missing');
+  }
+  app.includes('type="password" id="ai-key"') ? ok('AI key field is masked') : fail('AI key field is not masked');
   app.includes('/api/backup/run') ? ok('UI calls /api/backup/run') : fail('UI never calls /api/backup/run');
   app.includes('bk-key') ? fail('UI still renders the raw key in the DOM') : ok('UI never renders the raw key');
   app.includes('/api/backup/key/copy') ? ok('UI calls /api/backup/key/copy') : fail('UI never calls /api/backup/key/copy');

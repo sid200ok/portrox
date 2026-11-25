@@ -23,7 +23,8 @@ import * as IB from './inbox-store.mjs'; // PORTROX_INBOX_API
 import * as MD from './media-store.mjs'; // PORTROX_MEDIA_API
 import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API
 import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API
-import * as BR from './backup-run.mjs'; // PORTROX_BACKUP_RUN // PORTROX_GH_ROUTES
+import * as BR from './backup-run.mjs'; // PORTROX_BACKUP_RUN
+import * as AI from './ai-provider.mjs'; // PORTROX_AI_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -445,6 +446,27 @@ const server = createServer(async (req, res) => {
       }
 
       /* ---------- Backup key custody (UI only) ---------- */
+      /* ---------- AI provider ---------- */
+      if (p === '/api/ai/save') {
+        try { return json(200, AI.saveProvider({ base_url: b.base_url, api_key: b.api_key })); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/ai/validate') {
+        try { return json(200, await AI.validateKey()); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/ai/select') {
+        try { return json(200, AI.selectModel(b.model, b.params || {})); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/ai/test') {
+        try { return json(200, await AI.testChat(b.prompt)); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/ai/tasks') {
+        try { return json(200, AI.setTasks(b.tasks)); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+      if (p === '/api/ai/clear') {
+        try { return json(200, AI.clearProvider(String(b.confirm || ''))); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/backup/run') {
         try { return json(200, await BR.runBackup(REPO, { replace: b.replace === true })); }
         catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
@@ -495,6 +517,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (!sess) return json(401, { error: 'authentication required' });
       if (u.pathname === '/api/config') return json(200, maskedConfig());
+      if (u.pathname === '/api/ai') return json(200, { status: AI.status(), models: AI.models(), catalogue: AI.TASKS, limits: AI.PARAM_LIMITS });
       if (u.pathname === '/api/backup/key') return json(200, BK.status());
       const iw = u.pathname.match(/^\/api\/intro\/([^/]+)$/);
       if (iw) {

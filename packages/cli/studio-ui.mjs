@@ -341,7 +341,7 @@ ${SPRITE}
 <script>
 var CSRF=${JSON.stringify(csrf)},AUTH=${JSON.stringify(auth)},PORT=${JSON.stringify(port)},PID=${JSON.stringify(pid)},VER=${JSON.stringify(version)};
 var NL=String.fromCharCode(10);
-var S={bk:null,iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
+var S={ai:null,bk:null,iw:null,md:null,ib:null,ct:null,adv:null,gh:null,cfg:null,sites:[],route:'dashboard',sub:'supabase',sel:null,log:[],loading:true};
 function $(i){return document.getElementById(i)}
 function h(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ic(n,c){return '<svg class="i '+(c||'')+'" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
@@ -511,7 +511,7 @@ function vStudio(){
 /* ---------- Settings ---------- */
 function vSettings(){
   var c=S.cfg||{},sb=c.supabase||{},gh=c.github||{};
-  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['backup','lock','Backup'],['security','lock','Security'],['appearance','palette','Appearance']];
+  var tabs=[['account','key','Supabase account'],['supabase','db','Site database'],['github','git','GitHub'],['ghops','git','GitHub ops'],['content','db','Content'],['inbox','key','Inbox'],['media','palette','Media'],['intro','edit','Intro'],['backup','lock','Backup'],['ai','grid','AI'],['security','lock','Security'],['appearance','palette','Appearance']];
   var body='';
   if(S.sub==='account'){
     var ac=(sb.account||{}),pjs=sb.projects||[],orgs=ac.orgs||[];
@@ -799,6 +799,38 @@ function vSettings(){
         +'<p class="hint">Save it as <b>Portrox offsite backup key</b>, then click the confirm button above. Regenerating makes older bundles undecryptable.</p>':'')
       +(K.err?'<div class="alert err" style="margin-top:12px">'+h(K.err)+'</div>':'')
       +'</div>';
+  } else if(S.sub==='ai'){
+    /* PORTROX_AI_TAB — one OpenAI-compatible client, NVIDIA by default. */
+    var A=S.ai||{},st=A.status||{},cat=A.catalogue||[],ms=A.models||[],lim=A.limits||{};
+    var pr=st.params||{};
+    var mopts=ms.map(function(m){return '<option value="'+h(m)+'"'+(st.model===m?' selected':'')+'>'+h(m)+'</option>'}).join('');
+    var groups={};cat.forEach(function(t){(groups[t.group]=groups[t.group]||[]).push(t)});
+    var boxes=Object.keys(groups).map(function(g){
+      return '<div class="field"><label>'+h(g)+'</label>'+groups[g].map(function(t){
+        var on=(st.tasks||[]).indexOf(t.id)>=0;
+        return '<label class="row" style="gap:8px;align-items:center"><input type="checkbox" class="ai-task" value="'+h(t.id)+'"'+(on?' checked':'')+'> <span>'+h(t.label)+'</span></label>'}).join('')+'</div>'}).join('');
+    body='<div class="card"><header><h3>AI provider</h3>'
+      +(st.configured?'<span class="pill ok"><span class="dot"></span>key in store</span>':'<span class="pill warn">no key</span>')+'</header>'
+      +'<p class="desc">One OpenAI-compatible client. NVIDIA NIM is the default; any provider exposing <span class="mono">/models</span> and <span class="mono">/chat/completions</span> works. Plain http is allowed only for loopback, so a local NIM works without leaking the key. Every task is draft-only and human-approved.</p>'
+      +'<div class="grid g2"><div class="field"><label>Base URL</label><input class="inp" id="ai-url" value="'+h(st.base_url||'')+'" placeholder="https://integrate.api.nvidia.com/v1"></div>'
+      +'<div class="field"><label>API key'+(st.configured?' (stored, fingerprint '+h(st.fingerprint||'')+')':'')+'</label><input class="inp" type="password" id="ai-key" placeholder="'+(st.configured?'leave blank to keep the stored key':'nvapi-...')+'"></div></div>'
+      +'<div class="row wrap"><button class="btn" data-act="aisave">Save provider</button>'
+      +'<button class="btn pri" data-act="aivalidate">Validate key and load models</button>'
+      +'<button class="btn" data-act="airefresh">Refresh</button>'
+      +(st.configured?'<button class="btn danger" data-act="aiclear">Clear</button>':'')+'</div>'
+      +(st.validated_at?'<p class="note">Validated '+h(st.validated_at)+' · '+st.model_count+' models</p>':'')
+      +(ms.length?'<div class="hr"></div><div class="grid g2"><div class="field"><label>Model</label><select class="inp" id="ai-model">'+mopts+'</select></div>'
+        +'<div class="field"><label>Temperature ('+(lim.temperature||[0,2]).join('-')+')</label><input class="inp" id="ai-temp" value="'+h(pr.temperature)+'"></div>'
+        +'<div class="field"><label>top_p ('+(lim.top_p||[0,1]).join('-')+')</label><input class="inp" id="ai-topp" value="'+h(pr.top_p)+'"></div>'
+        +'<div class="field"><label>max_tokens ('+(lim.max_tokens||[1,8192]).join('-')+')</label><input class="inp" id="ai-max" value="'+h(pr.max_tokens)+'"></div></div>'
+        +'<div class="row wrap"><button class="btn" data-act="aiselect">Apply model and parameters</button></div>'
+        +'<div class="hr"></div><div class="field"><label>Test prompt</label><input class="inp" id="ai-prompt" value="Reply with the single word: ready"></div>'
+        +'<div class="row wrap"><button class="btn pri" data-act="aitest">Test chat</button></div>':'')
+      +(A.chat?'<div class="field"><label>Reply ('+h(A.chat.model)+', '+A.chat.ms+'ms)</label><pre class="log" style="max-height:200px">'+h(A.chat.reply)+'</pre></div>':'')
+      +(cat.length?'<div class="hr"></div><h4>Assign tasks</h4><p class="hint">Draft-only. Nothing sends email, publishes content or charges a card without you approving it.</p>'
+        +'<div class="grid g2">'+boxes+'</div><div class="row wrap"><button class="btn pri" data-act="aitasks">Save task assignment</button></div>':'')
+      +(A.err?'<div class="alert err" style="margin-top:12px">'+h(A.err)+'</div>':'')
+      +'</div>';
   } else if(S.sub==='security'){
     body='<div class="card"><header><h3>Studio credentials</h3>'+(AUTH.weakPassword?'<span class="pill err"><span class="dot"></span>Default password</span>':'<span class="pill ok"><span class="dot"></span>Password rotated</span>')+'</header>'
       +'<p class="desc">Username and password for this local Studio. Hashed with scrypt and a per-user salt. Changing only the username does <b>not</b> clear the default-password warning.</p>'
@@ -905,6 +937,21 @@ function act(a,id,btn){
       var NL=String.fromCharCode(10);S.bk.run=(j.ok?'OK':'FAILED')+NL+(j.steps||[]).map(function(x){return (x.ok?'OK   ':'FAIL ')+x.script+NL+x.log}).join(NL+NL);
       toast(j.ok?'Backup complete':'Backup failed',j.ok?'ok':'err');render()})
       .catch(function(x){S.bk.run='FAILED: '+x.message;toast(x.message,'err');render()})}
+  if(a==='airefresh'){S.ai=S.ai||{};return api('/api/ai').then(function(j){S.ai=Object.assign(S.ai,j);S.ai.err='';render()}).catch(function(x){S.ai.err=x.message;render()})}
+  if(a==='aisave'){S.ai=S.ai||{};var k=$('ai-key').value;
+    return api('/api/ai/save',{base_url:$('ai-url').value,api_key:k||undefined}).then(function(j){S.ai.status=j;$('ai-key').value='';toast('Provider saved','ok');return api('/api/ai').then(function(r){S.ai=Object.assign(S.ai,r);render()})}).catch(function(x){S.ai.err=x.message;render()})}
+  if(a==='aivalidate'){S.ai=S.ai||{};S.ai.err='';
+    return api('/api/ai/validate',{}).then(function(j){toast('Key valid - '+j.count+' models','ok');return api('/api/ai').then(function(r){S.ai=Object.assign(S.ai,r);render()})}).catch(function(x){S.ai.err=x.message;toast(x.message,'err');render()})}
+  if(a==='aiselect'){S.ai=S.ai||{};
+    return api('/api/ai/select',{model:$('ai-model').value,params:{temperature:$('ai-temp').value,top_p:$('ai-topp').value,max_tokens:$('ai-max').value}})
+      .then(function(j){S.ai.status=j;toast('Model applied','ok');render()}).catch(function(x){S.ai.err=x.message;render()})}
+  if(a==='aitest'){S.ai=S.ai||{};S.ai.err='';
+    return api('/api/ai/test',{prompt:$('ai-prompt').value}).then(function(j){S.ai.chat=j;toast('Model replied in '+j.ms+'ms','ok');render()}).catch(function(x){S.ai.err=x.message;toast(x.message,'err');render()})}
+  if(a==='aitasks'){S.ai=S.ai||{};var ids=[];var nl=document.querySelectorAll('.ai-task');
+    for(var i=0;i<nl.length;i++){if(nl[i].checked)ids.push(nl[i].value)}
+    return api('/api/ai/tasks',{tasks:ids}).then(function(j){S.ai.status.tasks=j.tasks;toast(ids.length+' task(s) assigned','ok');render()}).catch(function(x){S.ai.err=x.message;render()})}
+  if(a==='aiclear'){if(prompt('Type CLEAR to remove the AI provider config:')!=='CLEAR')return;
+    return api('/api/ai/clear',{confirm:'CLEAR'}).then(function(){S.ai={};toast('Cleared','info');return api('/api/ai').then(function(r){S.ai=r;render()})}).catch(function(x){toast(x.message,'err')})}
   if(a==='bkstatus'){S.bk=S.bk||{};return api('/api/backup/key').then(function(j){S.bk=Object.assign(S.bk,j);render()}).catch(function(x){S.bk.err=x.message;render()})}
   if(a==='bkgen'){S.bk=S.bk||{};if(S.bk.configured&&!confirm('Regenerating makes every existing offsite bundle undecryptable. Continue?'))return;
     return api('/api/backup/key/generate',{}).then(function(j){S.bk.configured=true;S.bk.created_at=j.created_at;S.bk.custody_confirmed=false;S.bk.fingerprint=j.fingerprint;S.bk.via=j.via;S.bk.err=j.copied?'':'No clipboard tool found - install xclip or wl-copy';render()}).catch(function(x){S.bk.err=x.message;render()})}
