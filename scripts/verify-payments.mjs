@@ -17,8 +17,11 @@ let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
 const must = (fn, re, label) => {
+  // Accept a string or a RegExp. A bare string silently threw 're.test is not a
+  // function' and aborted the whole try block, hiding every later assertion.
+  const rx = re instanceof RegExp ? re : new RegExp(String(re));
   try { fn(); fail(label + ' did NOT refuse'); }
-  catch (e) { re.test(e.message) ? ok(label + ' refused') : fail(label + ' wrong error: ' + e.message); }
+  catch (e) { rx.test(e.message) ? ok(label + ' refused') : fail(label + ' wrong error: ' + e.message); }
 };
 const H = (k, m) => createHmac('sha256', k).update(m, 'utf8').digest('hex');
 
@@ -51,6 +54,23 @@ try {
   must(() => PAY.setDefault('manual'), /enabled/, 'default set to a disabled provider');
   PAY.setDefault('stripe');
   PAY.route({ country: 'JP', currency: 'JPY' }).fallback === true ? ok('unmatched falls back to the default') : fail('no fallback');
+
+  console.log('\n-- multiple local gateways via instances --');
+  must(() => PAY.save('stripe:extra', {}), /account-wide/, 'instance on a single-account provider');
+  must(() => PAY.save('hosted_link:Bad Slug', { label: 'x', checkout_url: 'https://x.test' }), /instance id/, 'malformed instance id');
+  PAY.save('hosted_link:paystack_ng', { label: 'Paystack Nigeria', checkout_url: 'https://paystack.test/pay', enabled: true, countries: ['NG'], currencies: ['NGN'] });
+  PAY.save('hosted_link:pix_br', { label: 'Pix Brazil', checkout_url: 'https://pix.test/pay', enabled: true, countries: ['BR'], currencies: ['BRL'] });
+  PAY.save('manual:upi_in', { label: 'UPI India', payee_name: 'Siddhant', instructions: 'UPI then email reference', upi_id: 'siddhant@upi', enabled: true, countries: ['IN'], currencies: ['INR'] });
+  PAY.setOrder(['manual:upi_in', 'hosted_link:paystack_ng', 'hosted_link:pix_br', 'razorpay', 'stripe']);
+  PAY.route({ country: 'NG', currency: 'NGN' }).provider === 'hosted_link:paystack_ng' ? ok('Nigeria routes to its own gateway') : fail('NG routing wrong');
+  PAY.route({ country: 'BR', currency: 'BRL' }).provider === 'hosted_link:pix_br' ? ok('Brazil routes to its own gateway') : fail('BR routing wrong');
+  PAY.route({ country: 'IN', currency: 'INR' }).provider === 'manual:upi_in' ? ok('India routes to UPI manual') : fail('IN routing wrong');
+  const keys = PAY.list().providers.map(x => x.id);
+  keys.filter(k => k.startsWith('hosted_link:')).length === 2 ? ok('both hosted instances listed') : fail('instances not listed');
+  PAY.list().providers.find(x => x.id === 'hosted_link:pix_br').label === 'Pix Brazil' ? ok('instance label kept') : fail('label lost');
+  must(() => PAY.remove('hosted_link:pix_br', 'hosted_link'), /confirmation/, 'remove with the base id instead of the instance key');
+  PAY.remove('hosted_link:pix_br', 'hosted_link:pix_br');
+  PAY.list().providers.some(x => x.id === 'hosted_link:pix_br') === false ? ok('instance removed') : fail('instance survived');
 
   console.log('\n-- razorpay webhook (HMAC of raw body) --');
   const body = JSON.stringify({ event: 'payment.captured', payload: { id: 'pay_1' } });

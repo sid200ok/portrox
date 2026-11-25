@@ -839,14 +839,16 @@ function vSettings(){
       var inputs=c.fields.map(function(f){
         var val=f.secret?'':((st.public||{})[f.k]||'');
         var ph=f.secret?((st.secret_set||{})[f.k]?'stored (fingerprint '+((st.fingerprints||{})[f.k]||'')+') - blank keeps it':'required'):(f.req?'required':'optional');
-        return '<div class="field"><label>'+h(f.k)+(f.req?' *':'')+'</label><input class="inp'+(f.secret?'':' pay-pub')+'" data-p="'+h(c.id)+'" data-k="'+h(f.k)+'"'+(f.secret?' type="password"':'')+' value="'+h(val)+'" placeholder="'+h(ph)+'"></div>'}).join('');
+        return '<div class="field"><label>'+h(f.k)+(f.req?' *':'')+'</label><input class="inp'+(f.secret?'':' pay-pub')+'" data-p="'+h(c.id)+'" data-k="'+h(f.k)+'"'+(f.secret?' type="password" data-secret="1"':' data-secret="0"')+' value="'+h(val)+'" placeholder="'+h(ph)+'"></div>'}).join('');
       return '<div class="card"><header><h3>'+h(c.label)+'</h3>'
+        +(c.instanciable&&c.instance?'<span class="pill mute">'+h(c.instance)+'</span>':'')
         +(st.enabled?'<span class="pill ok"><span class="dot"></span>enabled</span>':(st.configured?'<span class="pill warn">configured, disabled</span>':'<span class="pill mute">not configured</span>'))+'</header>'
         +'<p class="desc">Methods: '+h(c.methods.join(', '))+' · region '+h(c.region)+(c.webhook?' · signature-verified webhooks':' · no webhook scheme claimed')+'</p>'
         +'<div class="grid g2">'+inputs
         +'<div class="field"><label>Countries (ISO-2, comma separated, blank = any)</label><input class="inp pay-list" data-p="'+h(c.id)+'" data-k="countries" value="'+h((st.countries||[]).join(','))+'"></div>'
         +'<div class="field"><label>Currencies (ISO-3, blank = any)</label><input class="inp pay-list" data-p="'+h(c.id)+'" data-k="currencies" value="'+h((st.currencies||[]).join(','))+'"></div></div>'
-        +'<div class="row wrap"><button class="btn pri" data-act="paysave" data-id="'+h(c.id)+'">Save</button>'
+        +(c.instanciable&&!c.instance?'<div class="field"><label>New instance id (e.g. paystack_ng, pix_br, upi_in)</label><input class="inp" id="pay-inst-'+h(c.id)+'" placeholder="lowercase, dash or underscore"></div>':'')
+        +'<div class="row wrap"><button class="btn pri" data-act="paysave" data-id="'+h(c.id)+'" data-base="'+h(c.base||c.id)+'" data-inst="'+h(c.instance||'')+'">Save</button>'
         +'<button class="btn" data-act="paytoggle" data-id="'+h(c.id)+'" data-on="'+(st.enabled?'0':'1')+'">'+(st.enabled?'Disable':'Enable')+'</button>'
         +'<button class="btn" data-act="paydefault" data-id="'+h(c.id)+'">Make default</button>'
         +(st.configured?'<button class="btn danger" data-act="payremove" data-id="'+h(c.id)+'">Remove</button>':'')+'</div></div>'}).join('');
@@ -967,9 +969,11 @@ function act(a,id,btn){
       .catch(function(x){S.bk.run='FAILED: '+x.message;toast(x.message,'err');render()})}
   if(a==='payrefresh'){S.pay=S.pay||{};return api('/api/pay').then(function(j){S.pay=Object.assign(S.pay,j);S.pay.err='';render()}).catch(function(x){S.pay.err=x.message;render()})}
   if(a==='paysave'){var id=btn.getAttribute('data-id'),cfg={},nl=document.querySelectorAll('.inp[data-p="'+id+'"]');
+    var inst=btn.getAttribute('data-inst');
+    if(!inst){var el=$('pay-inst-'+id); if(el&&el.value.trim()){id=btn.getAttribute('data-base')+':'+el.value.trim().toLowerCase()}}
     for(var i=0;i<nl.length;i++){var k=nl[i].getAttribute('data-k'),v=nl[i].value;
       if(k==='countries'||k==='currencies'){cfg[k]=v.split(',').map(function(x){return x.trim()}).filter(Boolean)}
-      else if(v!==''||!nl[i].type){cfg[k]=v}}
+      else {var sec=nl[i].getAttribute('data-secret')==='1'; if(!sec||v!=='')cfg[k]=v}}
     S.pay=S.pay||{};S.pay.err='';
     return api('/api/pay/save',{id:id,config:cfg}).then(function(j){S.pay.state=j;toast(id+' saved','ok');render()}).catch(function(x){S.pay.err=x.message;toast(x.message,'err');render()})}
   if(a==='paytoggle'){var id=btn.getAttribute('data-id'),on=btn.getAttribute('data-on')==='1';

@@ -69,6 +69,8 @@ try {
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
   app.includes('PORTROX_AI_TAB') ? ok('AI provider tab present') : fail('AI tab missing - backend-only module');
   app.includes('PORTROX_PAY_TAB') ? ok('payments tab present') : fail('payments tab missing - backend-only module');
+  app.includes('data-secret') ? ok('payment fields marked secret vs public') : fail('no secret marker - public fields cannot be cleared');
+  app.includes('pay-inst-') ? ok('instance id input present') : fail('no way to add a second local gateway');
   for (const ep of ['/api/pay','/api/pay/save','/api/pay/enable','/api/pay/default','/api/pay/order','/api/pay/remove','/api/pay/route']) {
     app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
   }

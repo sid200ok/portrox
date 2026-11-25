@@ -47,6 +47,22 @@ export const PROVIDERS = [
              { k: 'api_key', secret: true, req: true }] }
 ];
 const BY_ID = Object.fromEntries(PROVIDERS.map(p => [p.id, p]));
+/** hosted_link and manual may have MANY named instances - one per local gateway
+ *  or country. stripe/razorpay stay single: their secrets are account-wide. */
+export const INSTANCIABLE = ['hosted_link', 'manual'];
+const SLUG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+export function parseKey(key) {
+  const raw = String(key || '');
+  const i = raw.indexOf(':');
+  const base = i < 0 ? raw : raw.slice(0, i);
+  const slug = i < 0 ? '' : raw.slice(i + 1);
+  if (!BY_ID[base]) throw new PayError('unknown provider: ' + raw);
+  if (slug) {
+    if (!INSTANCIABLE.includes(base)) throw new PayError(base + ' cannot have instances (its secrets are account-wide)');
+    if (!SLUG.test(slug)) throw new PayError('instance id must be lowercase letters, digits, dash or underscore (max 32)');
+  }
+  return { base, slug, key: slug ? base + ':' + slug : base, spec: BY_ID[base] };
+}
 const fp = v => v ? createHash('sha256').update(String(v)).digest('hex').slice(0, 8) : '';
 
 function read() { try { return JSON.parse(readFileSync(P, 'utf8')); } catch { return { providers: {}, order: [], default: '' }; } }
@@ -68,14 +84,24 @@ export function list() {
   const j = read();
   return {
     default: j.default || '', order: j.order || [],
-    providers: PROVIDERS.map(p => {
-      const c = (j.providers || {})[p.id] || null;
+    providers: (() => {
+      const keys = [];
+      for (const p of PROVIDERS) {
+        if (!INSTANCIABLE.includes(p.id)) { keys.push(p.id); continue; }
+        const found = Object.keys(j.providers || {}).filter(k => k === p.id || k.startsWith(p.id + ':'));
+        if (found.length) keys.push(...found.sort()); else keys.push(p.id);
+      }
+      return keys;
+    })().map(k => {
+      const { base, slug, spec: p } = parseKey(k);
+      const c = (j.providers || {})[k] || null;
       const pub = {}, set = {}, prints = {};
       for (const f of p.fields) {
         if (f.secret) { set[f.k] = Boolean(c && c[f.k]); prints[f.k] = fp(c && c[f.k]); }
         else pub[f.k] = (c && c[f.k]) || '';
       }
-      return { id: p.id, label: p.label, configured: Boolean(c), enabled: Boolean(c && c.enabled),
+      return { id: k, base, instance: slug, label: (c && c.label) || p.label, instanciable: INSTANCIABLE.includes(base),
+        configured: Boolean(c), enabled: Boolean(c && c.enabled),
         public: pub, secret_set: set, fingerprints: prints,
         countries: (c && c.countries) || [], currencies: (c && c.currencies) || [], webhook: p.webhook };
     })
@@ -83,10 +109,9 @@ export function list() {
 }
 
 export function save(id, cfg = {}) {
-  const p = BY_ID[String(id || '')];
-  if (!p) throw new PayError('unknown provider: ' + id);
+  const { base, key, spec: p } = parseKey(id);
   const j = read(); j.providers = j.providers || {};
-  const cur = j.providers[p.id] || {};
+  const cur = j.providers[key] || {};
   const next = { ...cur };
   for (const f of p.fields) {
     const v = cfg[f.k];
@@ -96,16 +121,16 @@ export function save(id, cfg = {}) {
     if (f.secret && s && s.length < 8) throw new PayError(p.id + ': ' + f.k + ' looks too short');
     if (s) next[f.k] = s; else delete next[f.k];
   }
-  if (p.id === 'hosted_link' && next.checkout_url) {
+  if (base === 'hosted_link' && next.checkout_url) {
     let u; try { u = new URL(next.checkout_url); } catch { throw new PayError('checkout_url is not a URL'); }
     if (u.protocol !== 'https:') throw new PayError('checkout_url must be https');
   }
-  if (p.id === 'hyperswitch' && next.base_url) {
+  if (base === 'hyperswitch' && next.base_url) {
     let u; try { u = new URL(next.base_url); } catch { throw new PayError('base_url is not a URL'); }
     const local = ['localhost', '127.0.0.1'].includes(u.hostname);
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new PayError('base_url must be https (http only for loopback)');
   }
-  if (p.id === 'manual' && next.upi_id && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(next.upi_id)) throw new PayError('upi_id must look like name@bank');
+  if (base === 'manual' && next.upi_id && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(next.upi_id)) throw new PayError('upi_id must look like name@bank');
   if (cfg.countries !== undefined) {
     const l = (Array.isArray(cfg.countries) ? cfg.countries : []).map(x => String(x).toUpperCase());
     if (l.some(x => !CC(x))) throw new PayError('countries must be ISO-3166 alpha-2 codes');
@@ -117,26 +142,29 @@ export function save(id, cfg = {}) {
     next.currencies = [...new Set(l)];
   }
   if (cfg.enabled !== undefined) next.enabled = cfg.enabled === true;
-  j.providers[p.id] = next;
+  if (cfg.label !== undefined && INSTANCIABLE.includes(base)) next.label = String(cfg.label || '').slice(0, 80);
+  j.providers[key] = next;
   if (!Array.isArray(j.order)) j.order = [];
-  if (!j.order.includes(p.id)) j.order.push(p.id);
+  if (!j.order.includes(key)) j.order.push(key);
   write(j);
   return list();
 }
 
 export function setEnabled(id, on) {
-  const j = read(); const c = (j.providers || {})[id];
-  if (!c) throw new PayError('provider not configured: ' + id, 404);
+  const { key } = parseKey(id);
+  const j = read(); const c = (j.providers || {})[key];
+  if (!c) throw new PayError('provider not configured: ' + key, 404);
   c.enabled = on === true; write(j); return list();
 }
 export function setDefault(id) {
-  const j = read(); const c = (j.providers || {})[id];
+  const { key } = parseKey(id);
+  const j = read(); const c = (j.providers || {})[key];
   if (!c || !c.enabled) throw new PayError('default must be a configured AND enabled provider');
-  j.default = id; write(j); return list();
+  j.default = key; write(j); return list();
 }
 export function setOrder(ids) {
   const list0 = Array.isArray(ids) ? ids.map(String) : [];
-  if (list0.some(x => !BY_ID[x])) throw new PayError('unknown provider in order');
+  list0.forEach(x => parseKey(x));
   const j = read(); j.order = [...new Set(list0)]; write(j); return list();
 }
 
@@ -205,13 +233,12 @@ export function verifyCheckout(id, { order_id, payment_id, signature }) {
 }
 
 export function remove(id, confirm) {
-  if (!BY_ID[id]) throw new PayError('unknown provider: ' + id);
-  if (confirm !== id) throw new PayError('confirmation must equal the provider id', 403);
+  const { key } = parseKey(id);
+  if (confirm !== key) throw new PayError('confirmation must equal the provider key', 403);
   const j = read();
-  delete (j.providers || {})[id];
-  j.order = (j.order || []).filter(x => x !== id);
-  if (j.default === id) j.default = '';
+  delete (j.providers || {})[key];
+  j.order = (j.order || []).filter(x => x !== key);
+  if (j.default === key) j.default = '';
   write(j);
   return list();
 }
-export const _hmacForTests = hmac;
