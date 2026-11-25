@@ -70,6 +70,11 @@ try {
   app.includes('PORTROX_AI_TAB') ? ok('AI provider tab present') : fail('AI tab missing - backend-only module');
   app.includes('/api/ai/run') ? ok('UI calls /api/ai/run') : fail('assigned tasks have no UI executor');
   app.includes('ibdraft') ? ok('Inbox draft action present') : fail('no draft button in the Inbox');
+  for (const ep of ['/api/checkout/status','/api/checkout/clear']) {
+    app.includes(ep) ? ok('UI calls ' + ep) : fail('UI never calls ' + ep);
+  }
+  app.includes('ibpaid') && app.includes('ibconfirm') ? ok('appointment payment actions present') : fail('no way to mark an appointment paid');
+  app.includes('ibclearref') ? ok('clear-reference action present') : fail('clear endpoint has no UI action');
   app.includes('PORTROX_PAY_TAB') ? ok('payments tab present') : fail('payments tab missing - backend-only module');
   app.includes('data-secret') ? ok('payment fields marked secret vs public') : fail('no secret marker - public fields cannot be cleared');
   app.includes('pay-inst-') ? ok('instance id input present') : fail('no way to add a second local gateway');

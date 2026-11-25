@@ -727,7 +727,7 @@ function vSettings(){
         +'<td><div class="name">'+h(r.full_name||'')+'</div><div class="sub"><a href="mailto:'+h(r.email||'')+'">'+h(r.email||'')+'</a></div>'+appt+'</td>'
         +'<td>'+h(String(r.message||'').slice(0,180))+'</td>'
         +'<td>'+pill(r.triage)+'</td>'
-        +'<td class="act">'+acts+' <button class="btn sm" data-act="ibdraft" data-id="'+h(r.id)+'">Draft reply</button> <button class="btn sm danger" data-act="ibdel" data-id="'+h(r.id)+'">Delete</button></td></tr>'}).join('');
+        +'<td class="act">'+acts+' <button class="btn sm" data-act="ibdraft" data-id="'+h(r.id)+'">Draft reply</button> '+(r.appointment_id?'<button class="btn sm" data-act="ibpaid" data-appt="'+h(r.appointment_id)+'">Mark paid</button> <button class="btn sm" data-act="ibconfirm" data-appt="'+h(r.appointment_id)+'">Confirm</button> <button class="btn sm danger" data-act="ibclearref" data-appt="'+h(r.appointment_id)+'">Clear reference</button>':'')+' <button class="btn sm danger" data-act="ibdel" data-id="'+h(r.id)+'">Delete</button></td></tr>'}).join('');
     body='<div class="card"><header><h3>Inbox</h3><span class="pill mute">'+rs.length+' shown</span></header>'
       +'<p class="desc">Contact messages and bookings submitted through the public site. Deleting a lead also frees its booked slot. Only you can see this; anonymous visitors have no read access.</p>'
       +'<div class="grid g3"><div class="field"><label>Site</label><select class="inp" id="ib-site">'+sopts+'</select></div>'
@@ -1037,6 +1037,16 @@ function act(a,id,btn){
     return api('/api/media/avatar',{site:S.md.site,name:n}).then(function(j){toast('Avatar set to '+j.avatar+' - rebuild to ship','ok')}).catch(function(x){toast(x.message,'err')})}
   if(a==='mddel'){var n=btn.getAttribute('data-name');if(prompt('Type the filename to DELETE it:')!==n)return;
     return api('/api/media/delete',{site:S.md.site,name:n,confirm:n}).then(function(){toast('Deleted '+n,'info');return api('/api/media/'+encodeURIComponent(S.md.site)).then(function(k){S.md.files=k.files;S.md.rows=k.rows;render()})}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ibclearref'){var ap=btn.getAttribute('data-appt');
+    if(prompt('Type CLEAR to remove the payment reference and return this booking to pending:')!=='CLEAR')return;
+    return api('/api/checkout/clear',{id:ap,confirm:'CLEAR'})
+      .then(function(){toast('Reference cleared','info');return api('/api/inbox/'+encodeURIComponent(S.ib.site)+'?limit=200').then(function(j){S.ib.rows=j.rows;render()})})
+      .catch(function(x){toast(x.message,'err')})}
+  if(a==='ibpaid'||a==='ibconfirm'){var ap=btn.getAttribute('data-appt');var st=(a==='ibpaid')?'paid':'confirmed';
+    if(st==='paid'&&prompt('Type PAID to mark this appointment paid:')!=='PAID')return;
+    return api('/api/checkout/status',{id:ap,status:st,confirm:st==='paid'?'PAID':undefined})
+      .then(function(){toast('Appointment '+st,'ok');return api('/api/inbox/'+encodeURIComponent(S.ib.site)+'?limit=200').then(function(j){S.ib.rows=j.rows;render()})})
+      .catch(function(x){toast(x.message,'err')})}
   if(a==='ibdraft'){var id=btn.getAttribute('data-id');var row=(S.ib.rows||[]).filter(function(x){return x.id===id})[0];if(!row)return;
     toast('Drafting ...','info');
     return api('/api/ai/run',{task:'draft_reply',payload:{name:row.full_name,email:row.email,message:row.message,owner:''}})

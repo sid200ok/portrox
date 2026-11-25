@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
+step "checkout reference loop"
+node scripts/run-gate.mjs scripts/verify-checkout.mjs || stop "checkout reference loop is unsafe"
+
 step "AI task execution"
 node scripts/run-gate.mjs scripts/verify-ai-tasks.mjs || stop "AI task execution is unsafe"
 

@@ -32,7 +32,7 @@ if (!c.supabase.access_token) {
 if (!ref) { console.log('FAIL token set but no project loaded'); process.exit(1); }
 console.log('project ref: ' + ref);
 const T = () => accessToken();
-const ACCEPTED_FUNCS = new Set(['public.portrox_submit', 'public.portrox_book']);
+const ACCEPTED_FUNCS = new Set(['public.portrox_submit', 'public.portrox_book', 'public.portrox_payment_ref']);
 const objOf = l => { const md = l.metadata || {}; return [md.schema, md.entity || md.name].filter(Boolean).join('.'); };
 
 try {
