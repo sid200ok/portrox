@@ -727,7 +727,7 @@ function vSettings(){
         +'<td><div class="name">'+h(r.full_name||'')+'</div><div class="sub"><a href="mailto:'+h(r.email||'')+'">'+h(r.email||'')+'</a></div>'+appt+'</td>'
         +'<td>'+h(String(r.message||'').slice(0,180))+'</td>'
         +'<td>'+pill(r.triage)+'</td>'
-        +'<td class="act">'+acts+' <button class="btn sm danger" data-act="ibdel" data-id="'+h(r.id)+'">Delete</button></td></tr>'}).join('');
+        +'<td class="act">'+acts+' <button class="btn sm" data-act="ibdraft" data-id="'+h(r.id)+'">Draft reply</button> <button class="btn sm danger" data-act="ibdel" data-id="'+h(r.id)+'">Delete</button></td></tr>'}).join('');
     body='<div class="card"><header><h3>Inbox</h3><span class="pill mute">'+rs.length+' shown</span></header>'
       +'<p class="desc">Contact messages and bookings submitted through the public site. Deleting a lead also frees its booked slot. Only you can see this; anonymous visitors have no read access.</p>'
       +'<div class="grid g3"><div class="field"><label>Site</label><select class="inp" id="ib-site">'+sopts+'</select></div>'
@@ -735,6 +735,7 @@ function vSettings(){
       +'<div class="field"><label>State</label><select class="inp" id="ib-triage">'+to+'</select></div></div>'
       +'<div class="row wrap"><button class="btn pri" data-act="ibload">Load inbox</button></div>'
       +(I.err?'<div class="alert err" style="margin-top:12px">'+h(I.err)+'</div>':'')
+      +(S.ib&&S.ib.draft?'<div class="hr"></div><div class="field"><label>AI draft - review, copy, edit. Nothing was sent.</label><pre class="log" style="max-height:220px">'+h(S.ib.draft)+'</pre></div>':'')
       +(rs.length?'<div class="tblwrap" style="margin-top:14px"><table><thead><tr><th>When</th><th>From</th><th>Message</th><th>State</th><th>Actions</th></tr></thead><tbody>'+trs+'</tbody></table></div>'
         :'<p class="note" style="margin-top:12px">Nothing loaded yet, or no rows match the filter.</p>')
       +'</div>';
@@ -1036,6 +1037,10 @@ function act(a,id,btn){
     return api('/api/media/avatar',{site:S.md.site,name:n}).then(function(j){toast('Avatar set to '+j.avatar+' - rebuild to ship','ok')}).catch(function(x){toast(x.message,'err')})}
   if(a==='mddel'){var n=btn.getAttribute('data-name');if(prompt('Type the filename to DELETE it:')!==n)return;
     return api('/api/media/delete',{site:S.md.site,name:n,confirm:n}).then(function(){toast('Deleted '+n,'info');return api('/api/media/'+encodeURIComponent(S.md.site)).then(function(k){S.md.files=k.files;S.md.rows=k.rows;render()})}).catch(function(x){toast(x.message,'err')})}
+  if(a==='ibdraft'){var id=btn.getAttribute('data-id');var row=(S.ib.rows||[]).filter(function(x){return x.id===id})[0];if(!row)return;
+    toast('Drafting ...','info');
+    return api('/api/ai/run',{task:'draft_reply',payload:{name:row.full_name,email:row.email,message:row.message,owner:''}})
+      .then(function(j){S.ib.draft=j.draft;render()}).catch(function(x){toast(x.message,'err')})}
   if(a==='ibload'){var s=$('ib-site').value,k=$('ib-kind').value,t=$('ib-triage').value;
     S.ib=S.ib||{};S.ib.site=s;S.ib.kind=k;S.ib.triage=t;S.ib.err='';
     var q='?limit=200'+(k?'&kind='+encodeURIComponent(k):'')+(t?'&triage='+encodeURIComponent(t):'');

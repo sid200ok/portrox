@@ -25,7 +25,8 @@ import * as IW from './intro-wizard.mjs'; // PORTROX_INTRO_API
 import * as BK from './backup-key.mjs'; // PORTROX_BACKUP_KEY_API
 import * as BR from './backup-run.mjs'; // PORTROX_BACKUP_RUN
 import * as AI from './ai-provider.mjs'; // PORTROX_AI_API
-import * as PAY from './payment-providers.mjs'; // PORTROX_PAY_API // PORTROX_GH_ROUTES
+import * as PAY from './payment-providers.mjs'; // PORTROX_PAY_API
+import * as TK from './ai-tasks.mjs'; // PORTROX_TASK_API // PORTROX_GH_ROUTES
 import * as AUTHSTORE from './auth-store.mjs';
 import { renderLogin, renderApp } from './studio-ui.mjs';
 
@@ -449,6 +450,11 @@ const server = createServer(async (req, res) => {
       /* ---------- Backup key custody (UI only) ---------- */
       /* ---------- AI provider ---------- */
       /* ---------- Payments ---------- */
+      if (p === '/api/ai/run') {
+        try { return json(200, await TK.run(String(b.task || ''), b.payload || {})); }
+        catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
+      }
+
       if (p === '/api/pay/save') {
         try { return json(200, PAY.save(String(b.id || ''), b.config || {})); } catch (e) { return json(e.code || 400, { error: redact(e.message) }); }
       }

@@ -68,6 +68,8 @@ try {
   app.includes('PORTROX_INTRO_TAB') ? ok('intro wizard tab present') : fail('intro tab missing - backend-only module');
   app.includes('PORTROX_BACKUP_TAB') ? ok('backup key tab present') : fail('backup tab missing');
   app.includes('PORTROX_AI_TAB') ? ok('AI provider tab present') : fail('AI tab missing - backend-only module');
+  app.includes('/api/ai/run') ? ok('UI calls /api/ai/run') : fail('assigned tasks have no UI executor');
+  app.includes('ibdraft') ? ok('Inbox draft action present') : fail('no draft button in the Inbox');
   app.includes('PORTROX_PAY_TAB') ? ok('payments tab present') : fail('payments tab missing - backend-only module');
   app.includes('data-secret') ? ok('payment fields marked secret vs public') : fail('no secret marker - public fields cannot be cleared');
   app.includes('pay-inst-') ? ok('instance id input present') : fail('no way to add a second local gateway');

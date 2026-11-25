@@ -127,6 +127,21 @@ export function selectModel(model, params = {}) {
   return status();
 }
 
+/** Production completion. Same transport as testChat but does NOT record a
+ *  test result, so running a task never masquerades as a connectivity check. */
+export async function complete(prompt, { system } = {}) {
+  const j = read();
+  if (!j.model) throw new AIError('select a model first', 409);
+  const msgs = [];
+  if (system) msgs.push({ role: 'system', content: String(system).slice(0, 2000) });
+  msgs.push({ role: 'user', content: String(prompt || '').slice(0, 12000) });
+  const t0 = Date.now();
+  const d = await call('/chat/completions', { method: 'POST', body: { model: j.model, messages: msgs, ...(j.params || {}), stream: false }, timeout: 60000 });
+  const out = d?.choices?.[0]?.message?.content ?? '';
+  if (!String(out).trim()) throw new AIError('model returned an empty draft', 502);
+  return { text: String(out).slice(0, 12000), ms: Date.now() - t0, model: j.model };
+}
+
 export async function testChat(prompt) {
   const j = read();
   if (!j.model) throw new AIError('select a model first', 409);
