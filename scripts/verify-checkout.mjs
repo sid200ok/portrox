@@ -97,6 +97,45 @@ try {
 finally {
   if (sub) { try { await IB.deleteSubmission(sub, sub); ok('probe removed'); } catch (e) { fail('residue: ' + e.message); } }
 }
+
+console.log('\n-- validation before write, and the paid flag is real --');
+const M2 = await import('../packages/cli/supabase-mgmt.mjs');
+const q = (sql, ro) => M2.runQuery(c.supabase.access_token, c.supabase.default_project_ref, sql, ro ? { read_only: true } : undefined);
+const count = async () => (await q("select count(*)::int as n from public.submissions where site_id = '" + site + "'", true))[0].n;
+
+const n0 = await count();
+const past = await rpc('portrox_book', { p_site: site, p_full_name: 'Orphan Probe', p_email: 'orphan@example.invalid', p_message: 'past slot', p_starts_at: new Date(Date.now() - 86400000).toISOString(), p_minutes: 30 });
+past.json?.error === 'past_slot' ? ok('past slot refused') : fail('past slot: ' + JSON.stringify(past.json));
+const n1 = await count();
+n1 === n0 ? ok('NO orphan submission written for a rejected slot') : fail('orphan created: ' + n0 + ' -> ' + n1);
+// Clean up any orphan the OLD function created, so the gate never leaves residue
+// even when the assertion fails.
+const orph = await q("select id from public.submissions where email = 'orphan@example.invalid'", true);
+for (const o of orph) { try { await IB.deleteSubmission(o.id, o.id); } catch (e) {} }
+if (orph.length) ok('removed ' + orph.length + ' orphan(s) left by the previous function body');
+
+const flagsRow = await q("select flags from public.sites where id = '" + site + "'", true);
+const flagsBefore = JSON.stringify(flagsRow[0].flags);
+let paidSub = null;
+try {
+  await q("update public.sites set flags = coalesce(flags,'{}'::jsonb) || '{\"paid_booking\":true}'::jsonb where id = '" + site + "'");
+  const slot2 = new Date(Date.now() + 420 * 86400000); slot2.setUTCHours(12, 0, 0, 0);
+  const pb = await rpc('portrox_book', { p_site: site, p_full_name: 'Paid Probe', p_email: 'paid@example.invalid', p_message: 'paid flag probe', p_starts_at: slot2.toISOString(), p_minutes: 30 });
+  paidSub = pb.json?.submission_id || null;
+  const aid = pb.json?.appointment_id || null;
+  aid ? ok('paid-flag booking created') : fail('paid booking failed: ' + JSON.stringify(pb.json).slice(0, 140));
+  if (aid) {
+    const row = await CO.getAppointment(aid);
+    row.status === 'pending' ? ok('paid_booking=true yields PENDING, not confirmed') : fail('paid booking status ' + row.status);
+  }
+} catch (e) { fail('paid-flag probe threw: ' + e.message); }
+finally {
+  if (paidSub) { try { await IB.deleteSubmission(paidSub, paidSub); ok('paid probe removed'); } catch (e) { fail('paid residue: ' + e.message); } }
+  await q("update public.sites set flags = '" + flagsBefore.replace(/'/g, "''") + "'::jsonb where id = '" + site + "'");
+  const after = JSON.stringify((await q("select flags from public.sites where id = '" + site + "'", true))[0].flags);
+  after === flagsBefore ? ok('site flags restored byte-identical') : fail('FLAGS NOT RESTORED');
+}
+
 await must(() => CO.getAppointment('not-a-uuid'), /invalid appointment/, 'bad uuid');
 console.log('\n' + (bad === 0 ? 'CHECKOUT OK' : 'CHECKOUT BAD=' + bad));
 process.exit(bad === 0 ? 0 : 1);

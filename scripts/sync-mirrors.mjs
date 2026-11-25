@@ -21,7 +21,8 @@ export const MIRROR_MAP = {
   '20261123210000_inbox_triage.sql': '0007_inbox_triage.sql',
   '20261123220000_media_unique.sql': '0008_media_unique.sql',
   '20261126010000_payment_ref.sql': '0009_payment_ref.sql',
-  '20261126020000_payment_ref_guard.sql': '0010_payment_ref_guard.sql'
+  '20261126020000_payment_ref_guard.sql': '0010_payment_ref_guard.sql',
+  '20261126030000_book_validate_first.sql': '0011_book_validate_first.sql'
 };
 /** [mirrorPath, sourcePath] pairs derived from the map. Never hand-written. */
 export function mirrorPairs() {
