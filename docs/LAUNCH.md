@@ -3,11 +3,16 @@
 Automated gates prove the machine. These prove the experience. Run once before
 announcing the site, and after any major change.
 
-## 1. Custody (do this first)
-- [ ] `cat ~/.portrox/backup-passphrase` -> save into your password manager
-- [ ] `shred -u ~/.portrox/backup-passphrase`
-- [ ] Confirm the next `bash scripts/release.sh` still does an offsite backup
-      (it will prompt silently for the passphrase)
+## 1. Custody (do this first) - entirely in the Studio
+No terminal command handles a secret. Settings -> Backup does all of it.
+- [ ] Settings -> Backup -> Generate key. It is copied to your OS clipboard and
+      NEVER displayed. The panel shows only a sha256 fingerprint.
+- [ ] Paste into your password manager as "Portrox offsite backup key". Save.
+- [ ] Click "I saved it in my password manager". The panel must read custody
+      confirmed. Without this, a dead machine means undecryptable bundles.
+- [ ] Click "Back up now". The result panel must end with OFFSITE OK.
+- [ ] Never paste the key into a chat, ticket or screenshot. The fingerprint is
+      safe to share; the key is not.
 
 ## 2. Real lead, end to end
 - [ ] Open https://sid200ok.github.io in a private window

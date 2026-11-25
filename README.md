@@ -148,16 +148,24 @@ Disclosure policy: [`SECURITY.md`](SECURITY.md).
 
 ## Backups
 
+**Settings -> Backup** generates the key, copies it straight to your OS clipboard
+and **never displays it** - only a sha256 fingerprint is shown. It is stored at
+`~/.portrox/backup-key.json` (`0600`) like every other credential, and you must
+also save it in your password manager: the panel records that you confirmed this.
+**Back up now** runs the local and offsite backup from the UI. No terminal
+command asks for a secret.
+
 `backup-db.mjs` writes per-table JSON plus a manifest of row counts and migration
-versions into `backups/` — `0700`/`0600`, gitignored, contains PII.
+versions into `backups/` - `0700`/`0600`, gitignored, contains PII.
 `restore-db.mjs` clones each table into a scratch schema, loads the JSON via
 `json_populate_recordset`, compares counts, and drops the schema. Production is
 never written.
 
 `backup-offsite.mjs` encrypts with AES-256-GCM (scrypt key), **verifies the round
 trip before shipping**, confirms the target repo is private, and **appends** to
-it — never force-pushes. Keep the passphrase in a password manager; it is not in
-the repo and is not recoverable.
+it. *Back up and discard older bundles* replaces remote history with the newest
+bundle - the way to retire ciphertext from a retired key. A lost key means
+unrecoverable bundles; there is no escrow.
 
 ## Platform limits
 
