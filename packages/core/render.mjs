@@ -96,6 +96,24 @@ export async function renderSite(siteDir, outDir) {
   mkdirSync(join(outDir,'assets'), { recursive:true });
   copyFileSync(join(CORE,'portrox.css'), join(outDir,'assets/portrox.css'));
   const media = copyDir(join(siteDir,'assets'), join(outDir,'assets/media'));
+
+  // Public payment options. Lazy optional import so core still renders when the
+  // CLI store is absent; failure degrades to an empty panel, never a broken page.
+  // Only PUBLIC fields reach the bundle - checkout.publicOptions guarantees it.
+  let pay = [];
+  try { const CO = await import('../cli/checkout.mjs'); pay = CO.publicOptions(); } catch {}
+  const payPanel = pay.length
+    ? '<div class="card" style="margin-top:18px"><h3>Payment</h3>'
+      + pay.map(o => {
+          if (o.kind === 'manual') return '<p><b>' + esc(o.label) + '</b><br>' + esc(o.payee_name)
+            + (o.upi_id ? ' &middot; UPI <code>' + esc(o.upi_id) + '</code>' : '')
+            + '<br>' + esc(o.instructions) + '</p>';
+          if (o.kind === 'hosted_link') return '<p><a class="btn btn-p" href="' + esc(o.checkout_url)
+            + '" rel="noopener noreferrer" target="_blank">Pay with ' + esc(o.label) + '</a></p>';
+          return '<p class="note">' + esc(o.label) + ' &mdash; arranged directly after your request.</p>';
+        }).join('')
+      + '<p class="note">After paying, send the reference through the contact form. The owner confirms every booking; payment is never marked automatically.</p></div>'
+    : '';
   const pages = {};
 
   pages['index.html'] = layout({ title: (cfg.seo && cfg.seo.title) || name, desc: (cfg.seo && cfg.seo.description) || '', active:'home',
@@ -164,12 +182,18 @@ export async function renderSite(siteDir, outDir) {
       + '<form id="book-form" novalidate>'
       + '<label class="field"><span>Name</span><input name="full_name" required maxlength="120"></label>'
       + '<label class="field"><span>Email</span><input name="email" type="email" required maxlength="254"></label>'
-      + '<label class="field"><span>Preferred slot</span><input name="slot" placeholder="e.g. Tue 14:00" required maxlength="80"></label>'
+      + '<label class="field"><span>Preferred slot (your local time)</span><input name="starts_at" type="datetime-local" required></label>'
       + '<label class="field"><span>Agenda</span><textarea name="message" rows="4" maxlength="2000"></textarea></label>'
       + '<input class="hp" name="honeypot" tabindex="-1" autocomplete="off" aria-hidden="true">'
       + '<button class="btn btn-p" type="submit" style="width:100%">' + svg('cal') + ' Request booking</button>'
       + '<p class="status" data-status role="status" aria-live="polite"></p></form></div>'
-      + '<p class="note" style="margin-top:18px">Phase 3 adds server-side slot locking, paid-booking verification and automated email. Requests currently land in the site inbox.</p></div></section>' });
+      + '<div class="card" id="pay-ref" hidden style="margin-top:18px"><h3>Send your payment reference</h3>'
+      + '<p class="note">Already paid? Paste the transaction reference. The owner verifies it and confirms your booking.</p>'
+      + '<label class="field"><span>Reference</span><input id="pay-ref-val" maxlength="120" autocomplete="off"></label>'
+      + '<button class="btn btn-p" type="button" id="pay-ref-send">Send reference</button>'
+      + '<p class="status" data-ref-status role="status" aria-live="polite"></p></div>'
+      + '<p class="note" style="margin-top:18px">Slots are locked server-side. The owner confirms every booking; payment is never marked automatically.</p>'
+      + payPanel + '</div></section>' });
 
   if (nav.client_auth === true) {
     pages['login.html'] = layout({ title:'Client login — ' + name, desc:'Client portal', active:'login',
@@ -183,7 +207,7 @@ export async function renderSite(siteDir, outDir) {
   if (cfg.supabase && cfg.supabase.url && cfg.supabase.publishable_key) {
     if (/^https:\/\/[a-z0-9.-]+\.supabase\.(co|in)$/i.test(cfg.supabase.url) === false) throw new Error('bad supabase.url');
     if (/^sb_(secret|service)_/.test(cfg.supabase.publishable_key)) throw new Error('REFUSING secret key in public site');
-    writeFileSync(join(outDir,'assets/site-config.js'), 'window.PORTROX=' + JSON.stringify({ url:cfg.supabase.url, key:cfg.supabase.publishable_key, site:cfg.id }) + ';\n');
+    writeFileSync(join(outDir,'assets/site-config.js'), 'window.PORTROX=' + JSON.stringify({ url:cfg.supabase.url, key:cfg.supabase.publishable_key, site:cfg.id, pay:pay, minutes:(avail.duration_minutes || 30) }) + ';\n');
     writeFileSync(join(outDir,'assets/forms.js'), readFileSync(join(CORE,'forms.js'),'utf8'));
     for (const k of Object.keys(pages)) {
       pages[k] = pages[k].replace('</body>', '<script src="' + B + 'assets/site-config.js"></script><script src="' + B + 'assets/forms.js"></script></body>');

@@ -28,6 +28,9 @@ portrox build --all || stop "build failed"
 step "render"
 node scripts/run-gate.mjs scripts/verify-render.mjs || stop "render verification failed"
 
+step "public payment panel"
+node scripts/run-gate.mjs scripts/verify-pay-panel.mjs || stop "public payment panel leaks or misrenders"
+
 step "checkout reference loop"
 node scripts/run-gate.mjs scripts/verify-checkout.mjs || stop "checkout reference loop is unsafe"
 
