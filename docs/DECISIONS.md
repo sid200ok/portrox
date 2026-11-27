@@ -149,3 +149,27 @@ New standing rule:
 - Ledger synced: ROADMAP carried 19/20-character descriptions, a 168-character
   homepage, 19=12+7 parity and first-hop trust. All four were stale against the
   artifact and are corrected in the same commit that proves them.
+
+## Addendum 2026-11-27 (release ordering: the commit is not the last irreversible act)
+
+- Incident: the suite passed 35 gates, publish pushed gh-pages 54249374, verify-live
+  confirmed byte-identity, and the offsite bundle was appended. Then
+  end-of-file-fixer modified docs/DECISIONS.md, pre-commit returned non-zero because
+  a hook changed a file, and `git commit || exit 1` aborted. Production was left
+  AHEAD of version control: a live artifact that no commit described.
+- Cause 1 (mine): the release ordered verification before publish but still left the
+  commit last. The boundary that matters is the first IRREVERSIBLE action, and
+  pushing gh-pages plus appending an immutable offsite bundle are both irreversible.
+- Cause 2 (mine): the doc append used rstrip plus a block that already ended in a
+  newline plus another newline, which does not guarantee exactly one trailing
+  newline. Deterministic form: rstrip('\n') + '\n\n' + block.strip('\n') + '\n'.
+- Cause 3 (mine): the failure was silent. `git commit || exit 1` printed no state,
+  so the operator could not tell what had shipped.
+- D24 Release order is backup, daemon, normalise, suite, inventory, COMMIT, publish,
+  live, offsite, PUSH. The only permitted divergence is repo-ahead-of-live.
+- D25 Formatting hooks run before the first irreversible action, and the commit
+  retries exactly once, and only when the hook reports that it modified files.
+- D26 Every release exit path prints committed / published / live / offsite / pushed.
+- R14 Enumerate every irreversible action and put all cheap deterministic checks
+  before the FIRST of them. "Verify before publish" was a proxy for the real
+  property, which is "verify and commit before anything irreversible".
