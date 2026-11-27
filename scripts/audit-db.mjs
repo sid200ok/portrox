@@ -20,6 +20,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, accessToken, publicSupabaseFor } from '../packages/cli/config-store.mjs';
 import * as M from '../packages/cli/supabase-mgmt.mjs';
+const PX_AV = await import('../packages/core/availability.mjs');
+const PX_RULES = PX_AV.loadRules('sid200ok.github.io');
 
 const c = loadConfig();
 const ref = c.supabase.default_project_ref;
@@ -83,8 +85,7 @@ let apptId = null, subId = null, booked = false;
 for (let attempt = 1; attempt <= 3 && booked === false; attempt++) {
   const days = 30 + Math.floor(Math.random() * 240);
   const hour = 8 + Math.floor(Math.random() * 8);
-  const start = new Date(Date.now() + days * 86400000);
-  start.setUTCHours(hour, 0, 0, 0);
+  const start = new Date(PX_AV.snapSlot(Date.now() + days * 86400000, PX_RULES));
   try {
     const r = await fetch(pub.url + '/rest/v1/rpc/portrox_book', {
       method: 'POST',

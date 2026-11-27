@@ -77,6 +77,14 @@ esac
 step "rpc (positive)"
 node scripts/run-gate.mjs scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
 
+step "authenticated attack surface"
+node scripts/run-gate.mjs scripts/audit-auth.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+step "schema parity (mirrors vs declared legacy)"
+node scripts/run-gate.mjs scripts/verify-migrations.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+step "availability sync"
+node scripts/run-gate.mjs scripts/sync-availability.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+step "availability enforcement"
+node scripts/run-gate.mjs scripts/verify-availability.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 step "database audit (grants, RLS, future booking)"
 node scripts/run-gate.mjs scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 
@@ -92,8 +100,12 @@ node scripts/run-gate.mjs scripts/check-contact.mjs || stop "contact details dis
 step "profile handle"
 node scripts/run-gate.mjs scripts/check-profile.mjs || stop "profile links do not match the authenticated GitHub handle"
 
+if [ "${PORTROX_SKIP_LIVE:-0}" = "1" ]; then
+  echo "NOTE live gate deferred to release.sh (runs after publish)"
+else
 step "live"
 node scripts/run-gate.mjs scripts/verify-live.mjs || stop "live site is not Portrox output yet — click Publish in the Studio"
+fi
 
 step "secrets"
 bash scripts/audit-secrets.sh || stop "secret audit failed"

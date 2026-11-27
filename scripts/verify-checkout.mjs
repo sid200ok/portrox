@@ -8,6 +8,8 @@ import { loadConfig, publicSupabaseFor } from '../packages/cli/config-store.mjs'
 import * as IB from '../packages/cli/inbox-store.mjs';
 import * as CO from '../packages/cli/checkout.mjs';
 import * as PAY from '../packages/cli/payment-providers.mjs';
+const PX_AV = await import('../packages/core/availability.mjs');
+const PX_RULES = PX_AV.loadRules('sid200ok.github.io');
 
 const site = process.argv[2] || 'sid200ok.github.io';
 const c = loadConfig();
@@ -39,7 +41,7 @@ opts.filter(o => o.requires_server).every(o => !o.checkout_url) ? ok('server-req
 
 let sub = null, appt = null;
 try {
-  const slot = new Date(Date.now() + 400 * 86400000); slot.setUTCHours(11, 0, 0, 0);
+  const slot = new Date(PX_AV.snapSlot(Date.now() + 400 * 86400000, PX_RULES));
   // Derive the REAL argument names. Guessing them produced PGRST202.
   const M = await import('../packages/cli/supabase-mgmt.mjs');
   const sig = await M.runQuery(c.supabase.access_token, c.supabase.default_project_ref,
@@ -119,7 +121,7 @@ const flagsBefore = JSON.stringify(flagsRow[0].flags);
 let paidSub = null;
 try {
   await q("update public.sites set flags = coalesce(flags,'{}'::jsonb) || '{\"paid_booking\":true}'::jsonb where id = '" + site + "'");
-  const slot2 = new Date(Date.now() + 420 * 86400000); slot2.setUTCHours(12, 0, 0, 0);
+  const slot2 = new Date(PX_AV.snapSlot(Date.now() + 420 * 86400000, PX_RULES));
   const pb = await rpc('portrox_book', { p_site: site, p_full_name: 'Paid Probe', p_email: 'paid@example.invalid', p_message: 'paid flag probe', p_starts_at: slot2.toISOString(), p_minutes: 30 });
   paidSub = pb.json?.submission_id || null;
   const aid = pb.json?.appointment_id || null;

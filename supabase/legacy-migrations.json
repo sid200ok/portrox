@@ -1,0 +1,19 @@
+{
+  "_readme": [
+    "Sample-site history that is APPLIED to the shared project but is deliberately",
+    "NOT part of the Portrox bootstrap and NOT mirrored into packages/database.",
+    "These granted anon broad rights on the old contact/projects tables; those",
+    "tables are now deny-all. A fresh tenant must never receive them.",
+    "scripts/verify-migrations.mjs requires every supabase/migrations/*.sql to be",
+    "either byte-mirrored via MIRROR_MAP or declared here with a reason."
+  ],
+  "legacy": {
+    "20261105150250_init_schema.sql": "Original sample-site schema: created public.contact_messages and the old projects table. Superseded by portrox_init; tables now deny-all.",
+    "20261105154308_fix_anon_grants.sql": "Granted schema usage and table rights to anon for the sample frontend. Revoked by legacy_lockdown and drop_legacy_policies.",
+    "20261110070607_fix_projects_anon_insert.sql": "Granted anon INSERT on the old projects table. Table renamed to legacy_projects and locked.",
+    "20261110074431_fix_contact_permissions.sql": "GRANT ALL to anon on contact_messages. Reversed by legacy_lockdown; table now has zero client grants.",
+    "20261110190000_contact_messages_rls.sql": "Allowed anon INSERT on contact_messages. Replaced by the portrox_submit intake door; table now deny-all.",
+    "20261113120000_contact_hardening.sql": "Self-healing hardening of the old contact endpoint. Superseded by the Portrox intake RPCs.",
+    "20261117210000_rename_legacy_projects.sql": "Freed the name public.projects for Portrox by renaming the sample table to legacy_projects. Conditional no-op on a fresh tenant."
+  }
+}

@@ -34,25 +34,51 @@ the two documented schemes only; the others refuse rather than invent one.
 
 ### Phase 3c - checkout
 Write-once visitor reference. Only the admin may set paid or confirmed, and only
-to values the DB constraint allows. Booking validates before writing, honours
-paid_booking, and locks slots. The public booking form calls portrox_book and
-reveals a reference box bound to the returned appointment.
+to values the DB constraint allows. Booking validates before writing and honours
+paid_booking. The public booking form calls portrox_book and reveals a reference
+box bound to the returned appointment.
+
+### Phase 3d - booking enforcement
+The weekly windows are now ENFORCED, not merely rendered. Rules are synced from
+availability.json into the availability table and checked in the site timezone
+inside portrox_book: day, window, duration grid and zero seconds. Duration is
+server-owned and a mismatch is refused, never clamped. Overlapping ranges are
+refused by a BEFORE trigger under a per-site advisory lock; a pending booking
+holds its slot; an unpaid requester is capped at three pending holds. The inbox
+records the visitor's wall clock, not the database session's UTC. The loser of an
+insert race deletes its own submission, so no refusal leaves an orphan.
+Gates: sync-availability, verify-availability. Every booking probe derives its
+slot from the same rules the SQL enforces.
+
+### Phase 3e - schema parity
+Every supabase migration is either byte-mirrored into packages/database or
+declared legacy with a written reason. 19 source = 12 mirrored + 7 legacy.
+Gate: verify-migrations.
 
 ## Remaining
 
-### P1 - availability enforcement
-The weekly windows are RENDERED but NOT ENFORCED. portrox_book checks only
-past_slot and slot uniqueness, so a 03:00 Sunday booking is accepted. The rules
-live in availability.json while the availability table is empty. Fix: sync the
-file rules into the table, then enforce day, window and duration in the site
-timezone inside portrox_book, and prove it with a gate.
-
 ### P1 - human acceptance
-docs/LAUNCH.md section 3 must be re-run: the booking form changed from writing a
-message to creating a locked appointment.
+docs/LAUNCH.md section 3 quotes Mon-Fri 10:00-18:00, which is not the rule set:
+the real windows are Mon 10:00-13:00, Wed 10:00-13:00, Fri 15:00-18:00. Section 4
+is ticked for a live avatar, but no image ships on any page. Fix the wording,
+re-run sections 3 and 4, mark the old sign-off superseded, re-sign at the new
+commit.
+
+### P1 - presentation
+No avatar and no og:image, so shared links render a blank card. book.html and
+services.html carry 19 and 20 character meta descriptions; the normalizer must
+never fabricate text, so these are authoring tasks. index.html is 168 characters,
+past the usual truncation point.
+
+### P2 - intake abuse surface
+portrox_payment_ref has no rate limit and returns distinguishable error codes,
+which is a state oracle on appointment UUIDs. portrox_submit trusts the FIRST
+hop of x-forwarded-for; whether the edge rewrites that header must be measured,
+not assumed. Book refusals return before the limiter, so they are unmetered.
 
 ### P2 - transactional email
-Needs a provider key. Draft-only AI text exists; sending does not.
+Needs a provider key. Draft-only AI text exists; sending does not. Until then a
+booking is a request the owner confirms, not an appointment anyone is notified of.
 
 ### P2 - server-side gateway orders
 stripe, razorpay and hyperswitch need a server holding the secret key. A static
@@ -63,6 +89,9 @@ function or a small public service, which is a deliberate architecture change.
 Re-enable Supabase auth deliberately, populate site_members, scope reads by
 membership, and replace the login.html stub that still promises Phase 3.
 
-### P3 - deferred advisories
-multiple_permissive_policies and unused_index are performance notes on a
-near-empty database. Consolidating RLS risks access control for no launch gain.
+### P3 - housekeeping
+Advisor output is truncated without a count. Backup retention is unbounded
+locally and in the offsite repo. Legacy JWT API keys are still active. Two
+dormant tables carry old rows into every backup. multiple_permissive_policies
+and unused_index are performance notes on a near-empty database; consolidating
+RLS risks access control for no launch gain.

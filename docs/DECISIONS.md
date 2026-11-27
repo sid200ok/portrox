@@ -13,42 +13,73 @@ entry that says what superseded it and which gate proves the new behaviour.
 | D4 | Studio binds 127.0.0.1 with a kernel-assigned port, never a fixed port | no public authoring surface, no port collisions | verify-daemon |
 | D5 | Content files under sites/ are canonical; the DB is canonical for intake, site registry, media metadata and system pages | the renderer is file-driven and offline-capable | content-api + render gates |
 | D6 | GitHub access may use the system gh credential as a disclosed fallback | it is printed as "via system" in status and preflight | verify-git-auth |
-| D7 | Anonymous intake is allowed ONLY through portrox_submit, portrox_book and portrox_payment_ref | rate-limited SECURITY DEFINER doors; no direct table write | verify-supabase advisor allowlist |
 | D8 | multiple_permissive_policies and unused_index advisories are deferred | near-empty database; consolidating RLS risks access control for no gain | verify-supabase NOTE lines |
 | D9 | Payments: manual and hosted_link work today; stripe, razorpay and hyperswitch require a server holding the secret key | a publishable key cannot create orders | verify-payments |
 | D10 | AI is draft-only. Nothing auto-sends, publishes or charges | the operator stays in the loop | verify-ai-tasks |
 | D11 | Backups are AES-256-GCM encrypted offsite; the key lives in the Studio key store | release must never take a secret in argv | backup + restore gates |
+| D12 | Booking rules are enforced in SQL from public.availability, synced from availability.json. No row means fail closed | rendered-but-unenforced rules accepted a Sunday 03:00 booking | verify-availability |
+| D13 | Slot duration is server-owned. A mismatched p_minutes is refused, never clamped | clamping let a visitor take a four-hour block silently | verify-availability |
+| D14 | The inbox shows the visitor's wall clock in the site timezone | to_char on a timestamptz rendered UTC, 5:30 away from the pick | verify-availability |
+| D15 | Overlap is a BEFORE trigger under a per-site advisory lock, not a GiST EXCLUDE constraint | timestamptz + interval is STABLE, so Postgres refused the index expression with 42P17. A trigger needs no immutability and no extension | verify-availability |
+| D16 | The intake limiter is a count of LIVE submission rows, not a counter table | portrox_submit counts rows for (site, email OR ip) in the last hour, limit 5; portrox_private holds zero tables. Probe cleanup therefore resets it, so gates may use the real door | portrox_submit body, read 2026-11-27 |
+| D17 | Release order is backup, daemon, verify, publish, live, offsite, commit | the previous order published and pushed an immutable offsite bundle before verifying, so a red run still shipped | release.sh |
+| D18 | Every supabase migration is byte-mirrored or declared legacy with a reason | 19 source files against 12 mirrors went unnoticed; a self-hoster would get a different schema | verify-migrations |
 
-## Required properties of every anonymous RPC door (D7)
+## D7 - anonymous intake doors, stated as they actually are
 
-A door is accepted only if ALL of these hold, in SQL, proven by a gate:
+Anonymous execute is granted on exactly three SECURITY DEFINER functions.
+The advisor flags all three; they are accepted individually, not as a class.
 
-1. rate limited on a correctly parsed client IP (first hop of x-forwarded-for)
-2. scoped by site_id, so one tenant can never touch another
-3. validated before any write, leaving no orphan row on refusal
-4. write-once or status-constrained where it mutates an existing record
-5. never returns another visitor's data
+| door | rate limited | site scoped | validates before write | write-once / constrained | returns visitor data |
+|-|-|-|-|-|-|
+| portrox_submit | yes: 5 live rows/hour per site, matched on email OR ip | yes (p_site) | yes | insert only | no |
+| portrox_book | inherits submit. Refusals return BEFORE submit, so they write nothing and are unmetered | yes (p_site) | yes | slot held by overlap check plus trigger; the race loser deletes its own submission | no |
+| portrox_payment_ref | **NO** | **indirect only** - takes p_appointment, resolves the site from the row | yes | write-once, never changes status, refuses cancelled | no |
+
+portrox_payment_ref is accepted because it writes one bounded string to a row
+identified by an unguessable UUIDv4, is write-once, and returns no visitor data.
+It is NOT accepted as rate-limited: it is not. Its distinct error codes are a
+state oracle on appointment UUIDs. Both facts are open item O8.
+
+Two claims in earlier versions of this file were wrong and are corrected here:
+- 2026-11-27: it said all three doors were rate-limited. Asserted from the
+  advisor allowlist instead of the function body. portrox_payment_ref is not.
+- 2026-11-27: it said a full suite inherently spends the five-row allowance and
+  therefore cannot include an end-to-end booking proof. Wrong: the limiter counts
+  live rows and every gate deletes its probes, so cleanup resets it. The five
+  rows were one gate's own un-cleaned residue. The full proof is the default again.
 
 ## Standing rules
 
-- R1 Timezone: booking logic never uses host local time. The host may be on any
-  offset; the site timezone in availability.json is the only authority.
-- R2 Never rewrite a file that has not been read in this session. Large or
-  unread files get asserted, anchored patches with a backup and a rollback.
+- R1 Timezone: booking logic never uses host local time. The host is currently
+  Asia/Amman (+03); the site timezone in availability.json is the only authority.
+- R2 Never rewrite a file that has not been read in this session. Large or unread
+  files get asserted, anchored patches with a backup and a rollback.
 - R3 A gate that asserts over zero items must say so. Vacuous passes are labelled.
 - R4 Truncated output must print "showing N of M".
 - R5 Gate labels name the phases actually covered, not a historical phase.
 - R6 A signed launch acceptance is invalidated when the behaviour it covers
   changes. Re-run, then re-sign against the new commit.
+- R7 A probe must derive its inputs from the same rules the code enforces. A probe
+  that invents a slot proves usability, not correctness.
+- R8 Never fabricate content to satisfy a gate. A missing description is an
+  authoring task with a named file, not text the normalizer invents.
+- R9 A refusal test must print the identity it actually sent. A test labelled
+  "unknown site" that silently used the real site id is worse than no test.
+- R10 No irreversible action before verification. Publish, offsite push and commit
+  all follow a green suite.
 
 ## Open (must close before announcing)
 
 | id | Item | Owner |
 |-|-|-|
-| O1 | Availability windows enforced in portrox_book, overlaps excluded, duration server-side | build |
 | O2 | Booking is a request until a notification channel exists | build |
-| O3 | Backup key copied off-machine and restore proven from that copy alone | operator |
-| O4 | Supabase signup state gated again in the suite | build |
-| O5 | Avatar and OG image shipped; descriptions 50-160 chars | build |
+| O3 | Confirm the password-manager key fingerprint matches the Studio key store | operator |
+| O5 | Real 50-160 char descriptions for book and services; avatar and OG image | build |
 | O6 | Visitor notice for AI processing and offsite storage of messages | build |
-| O7 | LAUNCH.md section 3 re-run and re-signed | operator |
+| O7 | LAUNCH.md section 3 quotes windows that do not exist, and section 4 claims a live avatar that is not shipped. Fix, re-run, re-sign | operator |
+| O8 | Rate-limit portrox_payment_ref and collapse its error oracle | build |
+| O10 | Backup retention; rotate legacy JWT keys; drop dormant PII tables | build |
+| O11 | Measure whether the edge rewrites x-forwarded-for. If the first hop is client-controlled, the limiter is bypassable with rotating emails | build |
+| O12 | Advisor lists are truncated without a count (19 findings, 14 shown) | build |
+| O13 | too_many_pending is unproven because paid_booking is false; prove it on a scratch site | build |
