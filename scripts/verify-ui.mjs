@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+console.log('NOTE this gate proves the emitted script PARSES and that the expected ids, tabs and endpoint calls are PRESENT in the source. It does not render the app or click anything. Rendering and interaction are accepted by hand in docs/LAUNCH.md section 8.');
 
 let bad = 0;
 const ok = m => console.log('OK   ' + m);

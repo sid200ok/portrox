@@ -195,3 +195,20 @@ New standing rule:
   sufficient. Six gates of mine failed this in a row.
 - Observed and closed: the gitleaks slowdown (3.23s tree / 15.1s history) was WSL
   I/O contention. The next run measured 142ms / 316ms on the same byte count.
+
+## Addendum 2026-11-27 (what a wiring gate does not prove)
+
+- D29 scripts/verify-ui.mjs is a SYNTAX and SOURCE-PRESENCE gate. It parses the
+  emitted script and asserts that ids, tab names and api() calls exist. That is
+  real value - it caught a backend shipped with no frontend twice - but it is a
+  proxy. It cannot observe a runtime throw, a control hidden by CSS, or a handler
+  wired to the wrong function. The property "the Studio works" is proven only by
+  a human rendering it and clicking through it, which is docs/LAUNCH.md section 8.
+  Recorded under R15 instead of letting 36 green gates imply usability.
+- D30 No AI provider key is configured (config.json holds supabase and github
+  only), so no visitor data can reach a third party today. Standing condition:
+  add a visitor-facing privacy notice BEFORE adding an AI key, because draft
+  generation transmits the visitor's name, email and message to the provider.
+- Observation: 21 stale .bak files were archived and removed; git status stayed
+  empty, proving only ignored files were touched. Nothing was lost - every one is
+  a copy of a committed file, recoverable with git show <sha>:<path>.

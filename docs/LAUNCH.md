@@ -80,6 +80,55 @@ Fri 15:00-18:00, Asia/Kolkata, 30 minutes, starting on :00 or :30.
 - [x] Someone outside your network opens the site and submits the form (carried forward)
 - [x] The lead reaches your Inbox (carried forward)
 
+## 8. Studio acceptance - the authoring surface, by hand
+No gate renders this app. scripts/verify-ui.mjs proves the emitted script PARSES
+and that the expected ids, tabs and endpoint calls are PRESENT in the source.
+It cannot see a runtime throw, a hidden control, or a handler wired to the wrong
+function. This section is the only proof that the Studio actually works.
+
+Open the URL from `portrox status` in a browser. Press F12 and keep the Console
+visible for the whole section. ANY red uncaught error is a failure - stop and
+report it with the tab name and the message.
+
+DO NOT PRESS, during acceptance: Backup -> Replace key or Clear key - GitHub ops
+-> Delete repo, Disable Pages, Delete secret/variable - Intro -> Save - Content
+-> Save (unless you intend the change) - Payments -> Remove. Loading is safe;
+those actions mutate real state.
+
+### 8.1 Login and shell
+- [ ] The login page renders. Console clean.
+- [ ] Log in with your rotated credentials. The dashboard renders. Console clean.
+- [ ] The dashboard checklist shows real state: account connected, schema
+      complete, 1 of 2 free projects, site bound to the project.
+- [ ] Hamburger collapses and expands the sidebar. Ctrl+B does the same.
+- [ ] Narrow the window to phone width: the sidebar becomes an overlay with a
+      scrim, and tapping the scrim closes it.
+- [ ] Nav: Dashboard, Studio, Settings, About. Each renders, and the page title
+      and breadcrumb update to match.
+
+### 8.2 Every settings tab renders
+- [ ] Account, Supabase, GitHub, Security, Appearance - each renders, no console
+      error, and no secret value is visible anywhere on screen.
+- [ ] Project binding and GitHub ops - the repository selector lists real repos.
+- [ ] Content editor - Load a file; the text appears. Do NOT Save.
+- [ ] Inbox - Load inbox. It is empty (0 rows) and says so honestly rather than
+      showing an error or a spinner forever.
+- [ ] Media - Load. Empty list renders honestly.
+- [ ] Intro - Load defaults, then Preview. The preview reads like you. Do NOT Save.
+- [ ] Payments - the provider list renders; secret fields are masked; a
+      server-required gateway is labelled as needing a server.
+- [ ] AI provider - it shows NOT CONFIGURED, and the key field is masked.
+- [ ] Backup - the sha256 fingerprint is shown, custody reads confirmed, and the
+      raw key is nowhere on screen.
+
+### 8.3 Session
+- [ ] Sign out returns you to the login page.
+- [ ] Pressing Back does not restore the session.
+- [ ] Reloading a deep tab while signed out serves login, not the panel.
+
+### 8.4 The one assertion that matters
+- [ ] Across every step above, the browser console showed ZERO uncaught errors.
+
 ## Sign-off
 Every box ticked or explicitly carried forward -> launch-ready. Record both:
 
