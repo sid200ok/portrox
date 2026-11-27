@@ -212,3 +212,29 @@ New standing rule:
 - Observation: 21 stale .bak files were archived and removed; git status stayed
   empty, proving only ignored files were touched. Nothing was lost - every one is
   a copy of a committed file, recoverable with git show <sha>:<path>.
+
+## Addendum 2026-11-27 (a duplicate of something that already existed)
+
+- D31 The CLI already provided start, stop, restart, status, logs,
+  enable-autostart, disable-autostart, build, doctor and help, plus the px alias.
+  Nothing was missing. A parallel scripts/portrox-service.mjs was added anyway and
+  wrote a COMPETING unit to the same ~/.config/systemd/user/portrox.service path.
+  Two writers to one artifact is the drift class sync-mirrors and make-og --check
+  exist to prevent. The module is removed; the CLI is the single writer.
+- The duplicate's unit also set Environment=PATH unquoted from the interactive
+  shell. systemd splits Environment= on spaces, so the value truncated at the first
+  Windows path containing a space, and the content changed between shells. The
+  CLI's unit sets no PATH and uses absolute paths for node and the CLI, which is
+  both simpler and correct.
+- R16 When a step's output decides whether a later step should EXIST, do not put
+  the later step in the same message. "Run Step 1 alone first" was written twice
+  and contradicted by the same paste twice. Reading first is not reading first if
+  the write ships in the same breath.
+- D32 TMPDIR is inherited from another project (~/veda/.veda/tmp), so Portrox test
+  fixtures were created inside a different project's tree. Releases pin
+  TMPDIR=/tmp. Both gates cleaned up, so there was no residue, but isolation must
+  not depend on an ambient variable owned by someone else.
+- Observed, not a defect: the performance advisor fell 19 -> 18 between runs.
+  apply-migration already labels it eventually consistent. No schema change.
+- Scope: no Windows-side work. The user unit lives in ~/.config/systemd/user,
+  which is WSL-internal and required for autostart; nothing outside WSL is touched.
