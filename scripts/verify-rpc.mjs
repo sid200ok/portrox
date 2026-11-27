@@ -70,5 +70,21 @@ const spw = await fetch(url + '/rest/v1/system_pages?slug=eq.about-website', { m
 const past = await rpc('portrox_book', { p_site: ID, p_full_name: 'Probe', p_email: 'probe@example.invalid', p_message: 'past slot probe', p_starts_at: '2000-01-01T00:00:00Z', p_minutes: 30 });
 (past.j && (past.j.error === 'past_slot' || past.j.error === 'unknown_site')) ? ok('past slot rejected (' + past.j.error + ')') : fail('past slot accepted: ' + JSON.stringify(past));
 
+// A gate deletes what it creates. This probe used to be left for audit-db to
+// collect, which coupled two gates and inflated the intake limiter in between.
+// The anon surface proof above needs no token; cleanup uses one only if present.
+if (probe && probe.j && probe.j.id) {
+  try {
+    const { loadConfig, accessToken } = await import('../packages/cli/config-store.mjs');
+    const M = await import('../packages/cli/supabase-mgmt.mjs');
+    const ref = loadConfig().supabase.default_project_ref;
+    if (ref && accessToken()) {
+      await M.runQuery(accessToken(), ref, "delete from public.submissions where id = $px$" + probe.j.id + "$px$::uuid");
+      console.log('OK   own probe removed');
+    } else {
+      console.log('NOTE no admin token - probe row left for scripts/clean-probes.mjs');
+    }
+  } catch (e) { console.log('NOTE probe cleanup failed: ' + e.message + ' - run scripts/clean-probes.mjs'); }
+}
 console.log(bad === 0 ? (published ? 'RPC OK (published)' : 'RPC OK (pre-publish)') : 'RPC BAD=' + bad);
 process.exit(bad === 0 ? 0 : 1);

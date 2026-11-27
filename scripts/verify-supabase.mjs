@@ -98,7 +98,9 @@ for (const [label, fn] of [['security', () => M.securityAdvisor(T(), ref)], ['pe
     if (a.unavailable) { note(label + ' advisor unavailable: ' + a.error); continue; }
     const lints = a.lints || [];
     ok(label + ' advisor lints: ' + lints.length);
-    for (const l of lints.slice(0, 14)) console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' on ' + objOf(l));
+    const shown = lints.slice(0, 14);
+    for (const l of shown) console.log('     [' + label + '] ' + (l.level || '?') + ' ' + (l.name || '') + ' on ' + objOf(l));
+    if (lints.length > shown.length) console.log('     (showing ' + shown.length + ' of ' + lints.length + ')');
     if (label === 'security') {
       const serious = lints.filter(l => /^(ERROR|WARN)$/i.test(String(l.level || '')));
       const unaccepted = serious.filter(l => {

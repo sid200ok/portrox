@@ -1,21 +1,20 @@
 /**
- * Is the intake limiter's IP source trustworthy?
+ * Measures whether the stored intake IP is caller-controlled, and asserts that
+ * no security decision depends on it.
  *
  *   node scripts/audit-xff.mjs
  *
- * portrox_submit parses btrim(split_part(x-forwarded-for, ',', 1))::inet.
- * The FIRST hop is the caller's claim in the general proxy model; the LAST hop
- * is what a trusted edge appended. Whether Supabase's edge REWRITES the header
- * or APPENDS to it decides if the 5/hour limiter is bypassable with rotating
- * emails. That must be measured, not assumed.
+ * TWO CORRECTIONS vs earlier versions, both mine:
+ *  1. The first probe printed a masked prefix, which admitted two readings.
+ *  2. The second compared inet::text to the bare forged string. Postgres renders
+ *     the value with a /32 mask, so equality failed for a FORMATTING reason and
+ *     the verdict fell through to INCONCLUSIVE while the data was decisive.
+ *     Values are now normalised (mask stripped) before comparison, and the
+ *     verdict is one question: does the stored address equal the forged first hop?
  *
- * CORRECTION vs the first attempt: it printed a masked prefix and a single
- * equality boolean, which admitted two readings (edge rewrote it, OR inet::text
- * carried a /32 mask). The decisive comparison - did three DIFFERENT forged
- * headers produce the SAME stored IP? - was never printed. It is now the verdict.
- *
- * The raw IP is never printed. Only a sha256 fingerprint, so runs are comparable
- * without disclosing the operator's address.
+ * A spoofable stored IP is acceptable ONLY because the limiter ignores it. That
+ * is asserted here against the live function body, not assumed.
+ * The raw address is never printed - only a sha256 fingerprint.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -31,24 +30,27 @@ const T = () => accessToken();
 const q = (sql, ro) => M.runQuery(T(), ref, sql, ro ? { read_only: true } : undefined);
 const lit = s => { const v = String(s); if (v.includes('$px$')) throw new Error('quote tag in payload'); return '$px$' + v + '$px$'; };
 const fp = s => createHash('sha256').update(String(s)).digest('hex').slice(0, 12);
+const hostOf = s => String(s || '').split('/')[0].trim();
+
+let bad = 0;
+const ok = m => console.log('OK   ' + m);
+const fail = m => { bad++; console.log('FAIL ' + m); };
+const note = m => console.log('NOTE ' + m);
 
 let url = '', key = '';
-const deployed = 'dist/' + ID + '/assets/site-config.js';
-if (existsSync(deployed)) {
-  const m = readFileSync(deployed, 'utf8').match(/window\.PORTROX\s*=\s*(\{.*\});?/s);
+const dep = 'dist/' + ID + '/assets/site-config.js';
+if (existsSync(dep)) {
+  const m = readFileSync(dep, 'utf8').match(/window\.PORTROX\s*=\s*(\{.*\});?/s);
   if (m) { try { const j = JSON.parse(m[1]); url = j.url || ''; key = j.key || ''; } catch {} }
 }
 if (!url || !key) {
   const cfg = JSON.parse(readFileSync('sites/' + ID + '/site.json', 'utf8'));
-  url = (cfg.supabase && cfg.supabase.url) || '';
-  key = (cfg.supabase && cfg.supabase.publishable_key) || '';
+  url = (cfg.supabase && cfg.supabase.url) || ''; key = (cfg.supabase && cfg.supabase.publishable_key) || '';
 }
-if (!url || !key) { console.log('FAIL precondition: site not wired to a project'); process.exit(1); }
+if (!url || !key) { console.log('FAIL precondition: site not wired'); process.exit(1); }
 
 const before = Number((await q('select count(*)::int as n from public.submissions', true))[0].n);
 console.log('baseline submissions: ' + before);
-if (before >= 3) console.log('NOTE ' + before + ' rows already present; the 5/hour limiter may refuse. Run scripts/clean-probes.mjs first if they are probes.');
-
 const made = [];
 const results = [];
 try {
@@ -57,55 +59,42 @@ try {
     const r = await fetch(url + '/rest/v1/rpc/portrox_submit', {
       method: 'POST',
       headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json', 'X-Forwarded-For': forged },
-      body: JSON.stringify({
-        p_site: ID, p_kind: 'contact', p_full_name: 'Probe', p_email: 'probe@example.invalid',
-        p_message: 'xff trust probe', p_slot: null, p_honeypot: null
-      })
+      body: JSON.stringify({ p_site: ID, p_kind: 'contact', p_full_name: 'Probe', p_email: 'probe@example.invalid', p_message: 'xff trust probe', p_slot: null, p_honeypot: null })
     });
     let j = null; try { j = await r.json(); } catch {}
-    if (!j || !j.id) { console.log('NOTE forged "' + forged + '" gave ' + JSON.stringify(j)); continue; }
+    if (!j || !j.id) { note('forged "' + forged + '" gave ' + JSON.stringify(j)); continue; }
     made.push(j.id);
     const row = (await q('select ip::text as ip from public.submissions where id = ' + lit(j.id) + '::uuid', true))[0];
-    const ip = row && row.ip ? String(row.ip) : null;
-    results.push({ forged, firstHop, ip, fingerprint: ip ? fp(ip) : 'null', equalsForged: ip === firstHop, hasMask: !!ip && ip.includes('/'), len: ip ? ip.length : 0 });
+    const raw = row && row.ip ? String(row.ip) : null;
+    const host = hostOf(raw);
+    results.push({ forged, firstHop, host, fingerprint: raw ? fp(raw) : 'null', equals: host === firstHop, masked: !!raw && raw.includes('/') });
   }
 
-  console.log('\n-- what was actually stored (fingerprint only, never the address) --');
+  console.log('\n-- stored address, normalised (fingerprint only) --');
   for (const x of results) {
     console.log('forged="' + x.forged + '" first_hop=' + x.firstHop
-      + ' | stored_fp=' + x.fingerprint
-      + ' | equals_first_hop=' + x.equalsForged
-      + ' | has_mask=' + x.hasMask
-      + ' | text_len=' + x.len);
+      + ' | stored_fp=' + x.fingerprint + ' | equals_first_hop=' + x.equals + ' | mask_present=' + x.masked);
   }
 
-  console.log('\n-- verdict --');
-  if (results.length < 2) {
-    console.log('INCONCLUSIVE: fewer than two probes were stored. Re-run after cleaning probes.');
-    process.exitCode = 1;
-  } else if (results.some(x => x.equalsForged)) {
-    console.log('SPOOFABLE: a forged first hop was stored verbatim.');
-    console.log('ACTION: parse the LAST hop of x-forwarded-for (or a trusted-proxy count from the right),');
-    console.log('        then re-run this audit and expect NORMALIZED.');
-    process.exitCode = 1;
-  } else if (new Set(results.map(x => x.fingerprint)).size === 1) {
-    console.log('NORMALIZED: ' + results.length + ' different forged headers all produced the SAME stored address.');
-    console.log('The edge overwrites x-forwarded-for, so the first hop is the real client. Current parsing is safe.');
-    console.log('Record this in docs/DECISIONS.md and close open item O11.');
-    process.exitCode = 0;
+  console.log('\n-- measurement --');
+  if (results.length < 2) { fail('inconclusive: fewer than two probes stored. Clean probes and re-run.'); }
+  else if (results.some(x => x.equals)) {
+    note('SPOOFABLE STORAGE: a forged hop is recorded verbatim. Forensics value is limited.');
+    const body = (await q("select prosrc from pg_proc where proname = 'portrox_submit'", true))[0].prosrc;
+    /ip\s*=\s*v_ip/.test(body)
+      ? fail('AND the limiter uses it - the ceiling is bypassable. Apply 20261127020000_intake_limit_no_ip.sql')
+      : ok('and NO ceiling depends on it - the limiter is email + site based, so this is not exploitable');
+  } else if (new Set(results.map(x => x.host)).size === 1) {
+    ok('NORMALIZED: every forged header collapsed to one address - the edge overwrites it');
   } else {
-    console.log('INCONCLUSIVE: no forgery landed, but the stored addresses differ between probes.');
-    console.log('Possible client-side egress change or an intermediary pool. Re-run, then decide.');
-    process.exitCode = 1;
+    fail('inconclusive: no forgery landed but the addresses differ. Re-run, then decide.');
   }
 } catch (e) {
-  console.log('FAIL audit error: ' + e.message);
-  process.exitCode = 1;
+  fail('audit error: ' + e.message);
 } finally {
-  for (const id of made) {
-    try { await q('delete from public.submissions where id = ' + lit(id) + '::uuid'); } catch (e) { console.log('FAIL cleanup ' + id + ': ' + e.message); }
-  }
+  for (const id of made) { try { await q('delete from public.submissions where id = ' + lit(id) + '::uuid'); } catch (e) { fail('cleanup: ' + e.message); } }
   const after = Number((await q('select count(*)::int as n from public.submissions', true))[0].n);
-  console.log('\ncleanup: submissions ' + before + ' -> ' + after + (after === before ? ' (zero residue)' : ' (RESIDUE)'));
-  if (after !== before) process.exitCode = 1;
+  after === before ? ok('zero residue: submissions=' + after) : fail('residue ' + before + ' -> ' + after);
 }
+console.log(bad === 0 ? '\nXFF AUDIT OK' : '\nXFF AUDIT BAD=' + bad);
+process.exit(bad === 0 ? 0 : 1);

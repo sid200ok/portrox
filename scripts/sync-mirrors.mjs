@@ -24,7 +24,8 @@ export const MIRROR_MAP = {
   '20261126020000_payment_ref_guard.sql': '0010_payment_ref_guard.sql',
   '20261126030000_book_validate_first.sql': '0011_book_validate_first.sql'
 ,
-  '20261127010000_availability_enforce.sql': '0012_availability_enforce.sql',};
+  '20261127010000_availability_enforce.sql': '0012_availability_enforce.sql',
+  '20261127020000_intake_limit_no_ip.sql': '0013_intake_limit_no_ip.sql',};
 /** [mirrorPath, sourcePath] pairs derived from the map. Never hand-written. */
 export function mirrorPairs() {
   return Object.entries(MIRROR_MAP).map(([src, dst]) => [join(DST_DIR, dst), join(SRC_DIR, src)]);
