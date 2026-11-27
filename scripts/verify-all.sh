@@ -98,4 +98,4 @@ node scripts/run-gate.mjs scripts/verify-live.mjs || stop "live site is not Port
 step "secrets"
 bash scripts/audit-secrets.sh || stop "secret audit failed"
 
-printf '\nPORTROX PHASE 1 VERIFIED\n'
+printf '\nPORTROX SUITE VERIFIED (phases 0-3c)\n'
