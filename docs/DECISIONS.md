@@ -173,3 +173,25 @@ New standing rule:
 - R14 Enumerate every irreversible action and put all cheap deterministic checks
   before the FIRST of them. "Verify before publish" was a proxy for the real
   property, which is "verify and commit before anything irreversible".
+
+## Addendum 2026-11-27 (derived artifacts and URL-based features)
+
+- D27 A derived artifact committed to git needs a freshness gate. og-card.png is
+  generated from profile.json; without a check, editing the headline and
+  republishing changes the site text while the share card still advertises the old
+  one. scripts/make-og.mjs --check regenerates in memory, writes nothing, compares
+  bytes, and runs in the suite before verify-meta. Same drift class as the schema
+  mirrors that sync-mirrors exists to protect.
+- D28 A URL-based feature needs a fetch gate, not an existence gate. verify-meta
+  proved the image was in dist; verify-live never requested it. A 404 on that one
+  asset would have left every gate green and every share card blank.
+  verify-meta --live fetches each og:image URL, asserts 200 and an image
+  content-type, and compares bytes with the build. It runs after publish, beside
+  the live artifact gate. A thrown fetch is a NETWORK failure, never evidence that
+  something is unpublished - the HTTP 0 lesson.
+- R15 For any new gate, name the property in one sentence before writing code.
+  If the assertion is a proxy for that property (file exists, line number, syntax
+  parses, marker present), replace it with the property or record why the proxy is
+  sufficient. Six gates of mine failed this in a row.
+- Observed and closed: the gitleaks slowdown (3.23s tree / 15.1s history) was WSL
+  I/O contention. The next run measured 142ms / 316ms on the same byte count.

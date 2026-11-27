@@ -73,6 +73,16 @@ or partial build. A noindex page is exempt from snippet and social-description
 requirements, which is the rule verify-content already established.
 Gate: verify-meta.
 
+### Phase 3h - presentation and the share card
+Descriptions are derived from the owner's data, never invented: book from
+availability.json, services from services.json titles, homepage trimmed to 144.
+The 1200x630 share card is generated from profile.json by scripts/make-og.mjs with
+a zero-dependency PNG encoder that re-parses its own chunks. twitter:card is
+summary_large_image only because the image exists. Gates: make-og --check proves
+the committed card still matches the profile; verify-meta parses the PNG and
+refuses a placeholder; verify-meta --live fetches the URL a crawler uses and
+compares bytes with the build.
+
 ## Remaining
 
 ### P1 - human acceptance
@@ -82,15 +92,11 @@ is ticked for a live avatar, but no image ships on any page. Fix the wording,
 re-run sections 3 and 4, mark the old sign-off superseded, re-sign at the new
 commit.
 
-### P1 - presentation
-The share card is generated from profile.json by scripts/make-og.mjs: a
-deterministic 1200x630 PNG, zero dependencies, self-validated by re-parsing its
-own chunks. seo.og_image points at it and twitter:card is summary_large_image
-only because the image now ships. verify-meta parses the PNG and refuses a
-placeholder. Descriptions are derived from the owner's data and measured on
-decoded text: index 144, about 72, services 135, book 88, about-website 58.
-Optional, not a blocker: a personal photograph as the avatar. Upload it in the
-Studio (Settings -> Media -> set as avatar) and republish; nothing else changes.
+### P3 - optional presentation polish
+Not a launch blocker. A personal photograph as the avatar: Studio -> Settings ->
+Media -> set as avatar, then republish. og:image:alt, :width and :height would let
+platforms render the card without fetching it first and give screen readers a
+description; adding them means a deliberate renderer change with a build proof.
 
 ### P2 - intake abuse surface
 portrox_payment_ref still has no rate limit and returns distinguishable error
