@@ -258,3 +258,37 @@ New standing rule:
   healthy" and "is the service available" are different questions, and conflating
   them silently selects the wrong code path on any machine with an unrelated
   failed unit.
+
+## Addendum 2026-11-28 (a false acceptance record, and a new product request)
+
+- D34 Incident: the section-tick helper flipped all 19 Studio boxes and a sign-off
+  was written at e05f575 with no browser opened and 30 required boxes still open.
+  The tooling automated RECORDING acceptance without automating its PRECONDITIONS.
+  Both are revoked. scripts/verify-acceptance.mjs now refuses a sign-off while any
+  non-OPTIONAL box is open, or whose commit is not HEAD. It proves CONSISTENCY
+  only; whether a human performed a check is not machine-checkable and the gate
+  says so. Unsigned with open boxes is a PASS - unsigned is honest.
+- R18 Never automate the recording of a human judgement without automating its
+  preconditions. A one-command ticker plus an unconditional sign-off is a footgun
+  pointed at the last gate.
+- D35 The intake sweep was flaky: three DELETEs x four calls, no retry, and an
+  error string with no HTTP status. One transient blip turned a green suite red
+  while residue was zero. Now one idempotent IN-list DELETE, retried with backoff
+  on transient errors only. Fixture INSERTs are never blindly retried; they sweep
+  then retry once, which is idempotent.
+- D36 Requested: an AI site-building studio with a Claude-Code-class interaction
+  window, AI-generated templates, and inbuilt third-party agent skills.
+  Assessment: those skills are markdown instruction packs for a coding agent with
+  file tools, a shell and a verify-loop. Portrox's ai-provider is a draft-only chat
+  client with none of those, so the packs cannot transplant. Agent behaviour is a
+  product, not a plugin. Staged plan recorded: S1 site-row Edit/Pause/Resume/Publish
+  (Pause = is_published false, NOT disabling Pages, which verify-github refuses);
+  S2 hand-authored template registry; S3 design constraints as GATES (anti-trope,
+  contrast, spacing, motion tokens, zero CDN); S4 AI that proposes a diff against
+  content/data files and applies only on approval; S5 a sandboxed agent loop.
+  Nothing in S1-S5 is started, and none of it blocks v1.
+- D37 Third-party agent skills are executable influence over a tool-wielding
+  agent. The cited sources are listicles and videos; the repos are unverified.
+  If ever adopted: pin a SHA, vendor into the repo, read every line, gate it.
+  Never npx skills add at runtime on a machine holding the Supabase PAT and the
+  backup key. GSAP would also break the zero-CDN rule unless vendored.
