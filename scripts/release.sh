@@ -100,6 +100,10 @@ node scripts/run-gate.mjs scripts/verify-live.mjs \
   || die "the live site does not match the verified build - committed and published, NOT pushed"
 LIVE_OK="yes"
 
+echo "== live share image =="
+node scripts/verify-meta.mjs --live \
+  || die "the share card is not fetchable at its live URL - committed and published, NOT pushed"
+
 echo "== offsite backup =="
 if [ "${PORTROX_SKIP_OFFSITE:-0}" = "1" ]; then
   echo "OFFSITE SKIPPED (PORTROX_SKIP_OFFSITE=1)"

@@ -1,17 +1,24 @@
 /**
  * Generates the 1200x630 Open Graph share card from the owner's own profile.
  *
- *   node scripts/make-og.mjs [--site <id>]
+ *   node scripts/make-og.mjs [--site <id>]        # write the card
+ *   node scripts/make-og.mjs [--site <id>] --check # prove freshness, write nothing
  *
  * WHY: twitter:card was downgraded to summary because og_image was empty, so
  * every shared link rendered without a picture. A portrait is optional; a card
  * is not. This draws one from profile.json with a 5x7 bitmap font and a PNG
  * encoder built on node:zlib. No dependency, no network, no browser.
  *
- * DETERMINISTIC: same profile in, same bytes out. Re-run after editing profile.
- * SELF-VALIDATING: it re-parses what it wrote - signature, every chunk CRC,
+ * DETERMINISTIC: same profile in, same bytes out.
+ * SELF-VALIDATING: it re-parses what it produced - signature, every chunk CRC,
  * IHDR dimensions, and a full inflate compared byte-for-byte against the raster.
- * A generator that cannot prove its own output is not a generator, it is a hope.
+ *
+ * --check EXISTS BECAUSE THE CARD IS A COMMITTED DERIVATIVE. Edit the headline
+ * and republish without regenerating, and the site text changes while the share
+ * card still advertises the old one. That is the same drift sync-mirrors was
+ * built to stop for migrations. --check regenerates in memory and compares.
+ * The raster code below is byte-for-byte the version that produced sha256
+ * 5a291c4786a38e234d710e1aae6b34102db3eb63dad122e46b48463dea10ba54.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -20,6 +27,7 @@ import { createHash } from 'node:crypto';
 
 const argSite = process.argv.indexOf('--site');
 const ID = argSite > -1 ? process.argv[argSite + 1] : 'sid200ok.github.io';
+const CHECK = process.argv.includes('--check');
 const SITE = join('sites', ID);
 if (!existsSync(join(SITE, 'site.json'))) { console.log('FAIL no such site: ' + ID); process.exit(1); }
 
@@ -157,7 +165,7 @@ ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
 const idat = zlib.deflateSync(raw, { level: 9 });
 const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 
-/* self-validation: re-parse the bytes we are about to write */
+/* self-validation: re-parse the bytes we produced */
 let bad = 0;
 const ok = m => console.log('OK   ' + m);
 const fail = m => { bad++; console.log('FAIL ' + m); };
@@ -181,10 +189,30 @@ try {
 if (bad) { console.log('\nOG CARD BAD=' + bad + ' - nothing written'); process.exit(1); }
 
 const dest = join(SITE, 'assets', 'covers', 'og-card.png');
+const sha = b => createHash('sha256').update(b).digest('hex');
+
+if (CHECK) {
+  console.log('\n-- freshness: does the committed card match the current profile? --');
+  if (!existsSync(dest)) { fail('card missing: ' + dest + ' - run node scripts/make-og.mjs'); }
+  else {
+    const cur = readFileSync(dest);
+    if (cur.equals(png)) ok('shipped card is byte-identical to what profile.json now produces');
+    else {
+      fail('DRIFT: the shipped card was generated from an older profile');
+      console.log('     shipped : ' + sha(cur));
+      console.log('     current : ' + sha(png));
+      console.log('     ACTION  : node scripts/make-og.mjs, then republish');
+    }
+  }
+  console.log('text   : ' + name + ' | ' + head + ' | ' + loc + ' | ' + host);
+  console.log(bad === 0 ? '\nOG CARD FRESH' : '\nOG CARD BAD=' + bad);
+  process.exit(bad === 0 ? 0 : 1);
+}
+
 mkdirSync(dirname(dest), { recursive: true });
 writeFileSync(dest, png);
 console.log('\nwrote ' + dest);
 console.log('bytes  : ' + png.length);
-console.log('sha256 : ' + createHash('sha256').update(png).digest('hex'));
+console.log('sha256 : ' + sha(png));
 console.log('text   : ' + name + ' | ' + head + ' | ' + loc + ' | ' + host);
 console.log('OG CARD OK');
