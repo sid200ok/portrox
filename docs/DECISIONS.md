@@ -83,3 +83,69 @@ Two claims in earlier versions of this file were wrong and are corrected here:
 | O11 | Measure whether the edge rewrites x-forwarded-for. If the first hop is client-controlled, the limiter is bypassable with rotating emails | build |
 | O12 | Advisor lists are truncated without a count (19 findings, 14 shown) | build |
 | O13 | too_many_pending is unproven because paid_booking is false; prove it on a scratch site | build |
+
+## Addendum 2026-11-27 (later run) - corrections and closures
+
+- D19 The intake IP is taken from the LAST hop of x-forwarded-for and is used for
+  forensics only. MEASURED: with first-hop parsing, three forged headers stored
+  203.0.113.7/32, 198.51.100.9/32 and 203.0.113.7/32 - the forgery landed. With
+  last-hop parsing all three store one identical address. The edge therefore
+  APPENDS the real address; it does not overwrite the header. An earlier audit
+  line claiming "the edge overwrites it" was a mechanism claim the probe cannot
+  observe, and it was wrong. The gate now asserts invariance, not mechanism.
+- D20 Page descriptions are DERIVED from the owner's data: book from
+  availability.json, services from services.json titles. No new site.json keys,
+  no invented prose, and the snippet cannot drift from what the site enforces.
+- D21 twitter:card is summary_large_image only when og:image exists, otherwise
+  summary. Declaring a large-image card with no image renders an empty box.
+- D22 verify-content measures the HTML-escaped attribute, so its lengths are
+  inflated by 4 per ampersand. verify-meta decodes entities and owns the 50-160
+  quality contract; verify-content keeps the structural non-empty floor.
+
+Closed here:
+- O11 CLOSED. The first hop WAS caller-controlled; the limiter no longer uses any
+  IP. Proven by verify-intake (three ceilings, forged headers reset nothing) and
+  audit-xff (invariance plus independence).
+- O12 CLOSED. Advisor output prints "showing N of M".
+
+New standing rule:
+- R11 Write the verdict predicate first, prove every branch is reachable by the
+  cases the probe sends, normalise values before comparing, and never assert a
+  mechanism that was not observed. Three gates of mine broke this in a row.
+
+## Addendum 2026-11-27 (renderer scope failure)
+
+- R12 The acceptance test for a code change is the program's own output, not a
+  static inspection of the source. node --check parses; it cannot resolve an
+  identifier or see a scope error. Textual position is not lexical scope.
+- Incident: the description helpers were injected inside layout() because the
+  anchor line lived there, while the call sites are in renderSite(). Every build
+  threw "servicesDesc is not defined". A repair patch then compared line numbers,
+  concluded the scope was fine, and printed SKIP. verify-meta compounded it by
+  reporting META OK against a dist/ the failed build had wiped.
+- Resolution: helpers declared in renderSite beside svc and avail, which the page
+  body already renders, so no parallel file loader and no second read. The patch
+  is accepted only after a real build emits six pages and the descriptions are
+  read back from the artifact. verify-meta now derives the expected page set from
+  cfg.nav and fails on a zero-page or partial build.
+- D20 status: the derivation decision stands; it is proven only by the build output
+  recorded in the release that carries this addendum.
+- Known future item: login.html carries a 13-character description. It is not
+  rendered while client_auth is false. Enabling the portal will correctly fail the
+  50-160 rule until a real description is written.
+- Backup naming: use name.bak.N, never name.bak2. .gitignore covers *.bak and
+  *.bak.* only, so .bak2 would have been committed by git add -A.
+
+## Addendum 2026-11-27 (noindex social metadata)
+
+- D23 A noindex page is exempt from snippet-length and social-description
+  requirements. verify-content established this earlier: "A 404 page must be
+  noindex; requiring a meta description there was wrong." verify-meta contradicted
+  it and blocked an otherwise green build. Social metadata describes shareable
+  content; an error page is neither shared nor indexed. Any such tag that IS
+  present must be non-empty, and card/image consistency still applies.
+- R13 Before adding a rule to a new gate, check whether an existing gate already
+  decided the opposite. A new gate must not silently reverse a recorded decision.
+- Ledger synced: ROADMAP carried 19/20-character descriptions, a 168-character
+  homepage, 19=12+7 parity and first-hop trust. All four were stale against the
+  artifact and are corrected in the same commit that proves them.

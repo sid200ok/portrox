@@ -3,13 +3,16 @@
  *
  *   node scripts/verify-form-messages.mjs
  *
- * WHY: availability enforcement added eight codes. forms.js mapped three. The
- * other eight fell through to "Booking failed. Please try later.", telling a
- * visitor to retry a request that can never succeed. No gate noticed, because
- * the existing gates only check that forms.js CALLS the RPC.
+ * The code list is read from the LIVE function bodies, so a future migration
+ * cannot add an unmapped code silently.
  *
- * The code list is read from the LIVE function bodies, not from a list here, so
- * a future migration cannot add an unmapped code silently.
+ * TWO CORRECTIONS vs the first version, both mine:
+ *  1. It counted regex MATCHES, so portrox_submit reported "8 codes" when the
+ *     unique set is 7 (site_busy is returned by two ceilings). Now a Set.
+ *  2. The fallback check was VACUOUS: `A && !B` where B ("Network error. Please
+ *     try later.") is always present, so it could never fail. It now extracts
+ *     every string literal containing "try later" and requires each one to be a
+ *     network-error message - a predicate a regression can actually violate.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { loadConfig, accessToken } from '../packages/cli/config-store.mjs';
@@ -39,12 +42,13 @@ for (const fn of ['portrox_submit', 'portrox_book', 'portrox_payment_ref']) {
   const rows = await q("select prosrc from pg_proc where proname = '" + fn + "'");
   if (!rows || !rows[0]) { fail('function not found: ' + fn); continue; }
   const body = rows[0].prosrc;
-  let n = 0;
-  for (const m of body.matchAll(/'error'\s*,\s*'([a-z_]+)'/g)) { codes.add(m[1]); n++; }
+  const mine = new Set();
+  for (const m of body.matchAll(/'error'\s*,\s*'([a-z_]+)'/g)) mine.add(m[1]);
   for (const m of body.matchAll(/'error'\s*,\s*case([\s\S]*?)end/g)) {
-    for (const k of m[1].matchAll(/'([a-z_]+)'/g)) { codes.add(k[1]); n++; }
+    for (const k of m[1].matchAll(/'([a-z_]+)'/g)) mine.add(k[1]);
   }
-  ok(fn + ': ' + n + ' refusal code(s) read from the live body');
+  for (const code of mine) codes.add(code);
+  ok(fn + ': ' + mine.size + ' unique refusal code(s) in the live body');
 }
 
 console.log('\n-- every code has a visitor sentence --');
@@ -54,12 +58,20 @@ for (const code of [...codes].sort()) {
     : fail('UNMAPPED refusal code: ' + code + ' - add it to MSG in packages/core/forms.js');
 }
 
-console.log('\n-- fallbacks are honest --');
-/Please try later\.'\s*\)\s*,\s*false\)/.test(src) && !/Network error\. Please try later\./.test(src)
-  ? fail('a non-network fallback still says "try later"')
-  : ok('"try later" is reserved for network errors');
+console.log('\n-- "try later" is reserved for transient network faults --');
+const literals = [...src.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1]).filter(s => /try later/i.test(s));
+if (literals.length === 0) fail('no "try later" literal found at all - the network path lost its message');
+for (const s of literals) {
+  /^Network error\./.test(s)
+    ? ok('transient-only: "' + s + '"')
+    : fail('a non-network message says "try later": "' + s + '"');
+}
+note(literals.length + ' literal(s) inspected; a refusal must never imply the request will succeed on retry');
+
+console.log('\n-- unknown codes are visible, and refusals offer a route --');
 /unmapped refusal code/.test(src) ? ok('unmapped codes are logged for the owner') : fail('unmapped codes are swallowed silently');
 /CONTACT_FALLBACK|About page/.test(src) ? ok('inactive-form refusals point somewhere useful') : fail('no alternative route offered');
+/messageFor\s*\(/.test(src) ? ok('a single mapper is used by every handler') : fail('handlers map errors ad hoc');
 
-console.log(bad === 0 ? '\nFORM MESSAGES OK (' + codes.size + ' codes)' : '\nFORM MESSAGES BAD=' + bad);
+console.log(bad === 0 ? '\nFORM MESSAGES OK (' + codes.size + ' unique codes)' : '\nFORM MESSAGES BAD=' + bad);
 process.exit(bad === 0 ? 0 : 1);

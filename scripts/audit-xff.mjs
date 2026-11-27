@@ -1,19 +1,23 @@
 /**
- * Measures whether the stored intake IP is caller-controlled, and asserts that
+ * Proves the stored intake address is INVARIANT under header forgery, and that
  * no security decision depends on it.
  *
  *   node scripts/audit-xff.mjs
  *
- * TWO CORRECTIONS vs earlier versions, both mine:
- *  1. The first probe printed a masked prefix, which admitted two readings.
- *  2. The second compared inet::text to the bare forged string. Postgres renders
- *     the value with a /32 mask, so equality failed for a FORMATTING reason and
- *     the verdict fell through to INCONCLUSIVE while the data was decisive.
- *     Values are now normalised (mask stripped) before comparison, and the
- *     verdict is one question: does the stored address equal the forged first hop?
+ * THREE CORRECTIONS, all mine, recorded so the next reader does not repeat them:
+ *  1. v1 printed a masked prefix. Two different readings fitted the same output.
+ *  2. v2 compared inet::text (which carries /32) to a bare address, so equality
+ *     failed for a FORMATTING reason and the verdict fell to INCONCLUSIVE while
+ *     the data was decisive.
+ *  3. v3 measured correctly and then printed "the edge overwrites it". That is a
+ *     mechanism claim the probe cannot observe, and it is FALSE. The recorded
+ *     evidence shows the edge APPENDS:
+ *       first-hop parsing stored 203.0.113.7/32 and 198.51.100.9/32 - it tracked
+ *       the forgery; last-hop parsing stores one stable value for all three
+ *       cases. An overwriting edge would have normalised the first hop too.
  *
- * A spoofable stored IP is acceptable ONLY because the limiter ignores it. That
- * is asserted here against the live function body, not assumed.
+ * A gate asserts what it measured. This one asserts invariance and independence,
+ * and states the append model as history rather than as a fresh observation.
  * The raw address is never printed - only a sha256 fingerprint.
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -66,28 +70,38 @@ try {
     made.push(j.id);
     const row = (await q('select ip::text as ip from public.submissions where id = ' + lit(j.id) + '::uuid', true))[0];
     const raw = row && row.ip ? String(row.ip) : null;
-    const host = hostOf(raw);
-    results.push({ forged, firstHop, host, fingerprint: raw ? fp(raw) : 'null', equals: host === firstHop, masked: !!raw && raw.includes('/') });
+    results.push({ forged, firstHop, host: hostOf(raw), fingerprint: raw ? fp(raw) : 'null', equalsForged: hostOf(raw) === firstHop, masked: !!raw && raw.includes('/') });
   }
 
-  console.log('\n-- stored address, normalised (fingerprint only) --');
+  console.log('\n-- stored address, normalised (fingerprint only, never the address) --');
   for (const x of results) {
     console.log('forged="' + x.forged + '" first_hop=' + x.firstHop
-      + ' | stored_fp=' + x.fingerprint + ' | equals_first_hop=' + x.equals + ' | mask_present=' + x.masked);
+      + ' | stored_fp=' + x.fingerprint
+      + ' | equals_forged=' + x.equalsForged
+      + ' | mask_present=' + x.masked);
   }
 
-  console.log('\n-- measurement --');
-  if (results.length < 2) { fail('inconclusive: fewer than two probes stored. Clean probes and re-run.'); }
-  else if (results.some(x => x.equals)) {
-    note('SPOOFABLE STORAGE: a forged hop is recorded verbatim. Forensics value is limited.');
-    const body = (await q("select prosrc from pg_proc where proname = 'portrox_submit'", true))[0].prosrc;
-    /ip\s*=\s*v_ip/.test(body)
-      ? fail('AND the limiter uses it - the ceiling is bypassable. Apply 20261127020000_intake_limit_no_ip.sql')
-      : ok('and NO ceiling depends on it - the limiter is email + site based, so this is not exploitable');
+  console.log('\n-- property 1: invariance under forgery --');
+  if (results.length < CASES.length) {
+    fail('inconclusive: only ' + results.length + ' of ' + CASES.length + ' probes stored. Clean probes and re-run.');
+  } else if (results.some(x => x.equalsForged)) {
+    fail('CALLER-CONTROLLED: a forged hop is stored verbatim. The function must parse the LAST hop, not the first.');
   } else if (new Set(results.map(x => x.host)).size === 1) {
-    ok('NORMALIZED: every forged header collapsed to one address - the edge overwrites it');
+    ok('INVARIANT: ' + results.length + ' different forged headers produced one identical stored address');
+    note('history: with FIRST-hop parsing the same probes stored 203.0.113.7/32 and 198.51.100.9/32,');
+    note('        i.e. the forgery landed. So the edge APPENDS the real address; it does not overwrite.');
+    note('        Taking the last hop is correct in both the append and the rewrite model.');
   } else {
-    fail('inconclusive: no forgery landed but the addresses differ. Re-run, then decide.');
+    fail('inconclusive: no forgery landed but the stored addresses differ between probes. Re-run, then decide.');
+  }
+
+  console.log('\n-- property 2: no security decision depends on it --');
+  const body = (await q("select prosrc from pg_proc where proname = 'portrox_submit'", true))[0].prosrc;
+  /ip\s*=\s*v_ip/.test(body)
+    ? fail('a ceiling still compares ip = v_ip - apply 20261127020000_intake_limit_no_ip.sql')
+    : ok('no ceiling references the stored IP; limits are email + site based');
+  for (const marker of ['v_email_recent', 'v_site_hour', 'v_site_day']) {
+    body.includes(marker) ? ok('live body contains ' + marker) : fail('live body MISSING ' + marker);
   }
 } catch (e) {
   fail('audit error: ' + e.message);

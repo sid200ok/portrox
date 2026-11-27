@@ -65,6 +65,23 @@ export async function renderSite(siteDir, outDir) {
   const name = profile.full_name || cfg.owner || cfg.id;
   const year = new Date().getFullYear();
   const nav = cfg.nav || {};
+  // Page descriptions are DERIVED from the owner's own data, never invented.
+  // 'Book an appointment' (19 chars) is not a search snippet, and R8 forbids the
+  // normalizer fabricating one. These live in renderSite scope, beside svc and
+  // avail which the page body already renders, so the snippet cannot disagree
+  // with the page. They MUST be declared before layout() and before first use.
+  const clipDesc = (t) => t.length <= 160 ? t : t.slice(0, 157).replace(/\s+\S*$/, '').trim() + '...';
+  const servicesDesc = () => {
+    const titles = (Array.isArray(svc) ? svc : []).map(x => String((x && x.title) || '').trim()).filter(Boolean);
+    if (titles.length === 0) return 'Engineering services and how to start a conversation. Book a short call to discuss scope.';
+    return clipDesc('Engineering services: ' + titles.join(', ') + '. Book a short call to discuss scope.');
+  };
+  const bookDesc = () => {
+    const w = (avail && Array.isArray(avail.weekly)) ? avail.weekly : [];
+    if (w.length === 0) return 'Book a call. Available times are listed on this page once the owner sets them.';
+    const parts = w.map(r => String(r.day) + ' ' + String(r.from) + '-' + String(r.to)).join(', ');
+    return clipDesc('Book a ' + (avail.duration_minutes || 30) + '-minute call. ' + parts + ' (' + (avail.timezone || 'UTC') + ').');
+  };
 
   const layout = (o) => {
     const link = (href, label, key, cta) => '<a href="' + B + href + '"' + (o.active === key ? ' aria-current="page"' : '') + (cta ? ' class="cta"' : '') + '>' + label + '</a>';
@@ -79,7 +96,7 @@ export async function renderSite(siteDir, outDir) {
       + '<meta property="og:type" content="website"><meta property="og:title" content="' + esc(o.title) + '">\n'
       + '<meta property="og:description" content="' + esc(o.desc) + '">\n'
       + (cfg.seo && cfg.seo.og_image ? '<meta property="og:image" content="' + esc(cfg.seo.og_image) + '">\n' : '')
-      + '<meta name="twitter:card" content="summary_large_image"><meta name="generator" content="Portrox">\n'
+      + '<meta name="twitter:card" content="' + (cfg.seo && cfg.seo.og_image ? 'summary_large_image' : 'summary') + '"><meta name="generator" content="Portrox">\n'
       + '<link rel="stylesheet" href="' + B + 'assets/portrox.css">\n'
       + '<style id="portrox-theme">:root{--bg:' + esc((cfg.theme&&cfg.theme.bg)||'#020617')
       + ';--panel:' + esc((cfg.theme&&cfg.theme.panel)||'#0f172a')
@@ -165,7 +182,7 @@ export async function renderSite(siteDir, outDir) {
         + '</article>').join('') + '</div>' : '')
       + '</div></section>' });
 
-  pages['services.html'] = layout({ title:'Services — ' + name, desc:'Services and pricing', active:'services',
+  pages['services.html'] = layout({ title:'Services — ' + name, desc: servicesDesc(), active:'services',
     body:'<section><div class="wrap"><h2>Services</h2>'
       + (svc.length ? '<div class="grid g3">' + svc.map(s => '<article class="card"><h3>' + esc(s.title) + '</h3><p>' + esc(s.description) + '</p>'
         + (s.price ? '<p class="rate" style="margin:0 0 12px">' + esc(s.price) + '</p>' : '')
@@ -175,7 +192,7 @@ export async function renderSite(siteDir, outDir) {
       + '<p class="note" style="margin-top:22px">Checkout uses public payment links. Secret keys, webhook verification and payment confirmation run server-side, never in this static site.</p></div></section>' });
 
   const weekly = avail.weekly || [];
-  pages['book.html'] = layout({ title:'Book — ' + name, desc:'Book an appointment', active:'book',
+  pages['book.html'] = layout({ title:'Book — ' + name, desc: bookDesc(), active:'book',
     body:'<section><div class="wrap" style="max-width:760px"><h2>Book an appointment</h2><div class="card">'
       + '<p class="org">' + esc(avail.duration_minutes || 30) + ' minutes · ' + esc(avail.timezone || 'UTC') + ' · ' + (cfg.flags && cfg.flags.paid_booking ? 'Paid booking' : 'Free booking') + '</p>'
       + (weekly.length ? '<h3>Weekly availability</h3><div class="slots" style="margin-bottom:18px">' + weekly.map(w => '<span class="slot">' + esc(w.day) + ' ' + esc(w.from) + '–' + esc(w.to) + '</span>').join('') + '</div>' : '<p class="note">Availability not configured yet.</p>')

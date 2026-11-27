@@ -52,8 +52,26 @@ slot from the same rules the SQL enforces.
 
 ### Phase 3e - schema parity
 Every supabase migration is either byte-mirrored into packages/database or
-declared legacy with a written reason. 19 source = 12 mirrored + 7 legacy.
+declared legacy with a written reason. 20 source = 13 mirrored + 7 legacy.
 Gate: verify-migrations.
+
+### Phase 3f - intake ceilings and visitor language
+The limiter no longer trusts a client header. Measured: with first-hop parsing
+three forged X-Forwarded-For values were stored verbatim; with last-hop parsing
+all three collapse to one address. Ceilings are 5 per email per hour, 40 per site
+per hour and 200 per site per day, counted from live rows so probe cleanup resets
+them. Every refusal code the three RPCs can return is mapped to a sentence a
+visitor can act on, and "try later" is reserved for network faults.
+Gates: verify-intake, audit-xff, verify-form-messages.
+
+### Phase 3g - search snippets and share cards
+Page descriptions are derived from the owner's data, never invented: book from
+availability.json, services from services.json titles. twitter:card is
+summary_large_image only when og:image exists. verify-meta decodes HTML entities
+before measuring, requires the full expected page set, and fails on a zero-page
+or partial build. A noindex page is exempt from snippet and social-description
+requirements, which is the rule verify-content already established.
+Gate: verify-meta.
 
 ## Remaining
 
@@ -65,16 +83,19 @@ re-run sections 3 and 4, mark the old sign-off superseded, re-sign at the new
 commit.
 
 ### P1 - presentation
-No avatar and no og:image, so shared links render a blank card. book.html and
-services.html carry 19 and 20 character meta descriptions; the normalizer must
-never fabricate text, so these are authoring tasks. index.html is 168 characters,
-past the usual truncation point.
+No avatar and no og:image, so shared links still render without a picture. The
+card type now downgrades to summary instead of declaring a large image it cannot
+fill. Descriptions are derived from the owner's data and measured on decoded
+text: index 144, about 72, services 135, book 88, about-website 58 characters.
+Remaining: one real photograph and a 1200x630 share card.
 
 ### P2 - intake abuse surface
-portrox_payment_ref has no rate limit and returns distinguishable error codes,
-which is a state oracle on appointment UUIDs. portrox_submit trusts the FIRST
-hop of x-forwarded-for; whether the edge rewrites that header must be measured,
-not assumed. Book refusals return before the limiter, so they are unmetered.
+portrox_payment_ref still has no rate limit and returns distinguishable error
+codes, which is a state oracle on appointment UUIDs. The submit limiter no longer
+trusts any client header: it caps 5 per email per hour, 40 per site per hour and
+200 per site per day, all counted from live rows. The stored IP comes from the
+last hop and is forensics only. Book refusals return before the limiter, so they
+remain unmetered by design.
 
 ### P2 - transactional email
 Needs a provider key. Draft-only AI text exists; sending does not. Until then a

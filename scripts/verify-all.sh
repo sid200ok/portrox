@@ -89,6 +89,8 @@ step "intake ceilings (no client-header trust)"
 node scripts/run-gate.mjs scripts/verify-intake.mjs || stop "intake ceilings failed - a limit is missing or trusts a client header"
 step "visitor refusal messages"
 node scripts/run-gate.mjs scripts/verify-form-messages.mjs || stop "a server refusal code has no visitor-facing message"
+step "search snippets and share cards"
+node scripts/run-gate.mjs scripts/verify-meta.mjs || stop "a page has a weak snippet or declares a share card it cannot fill"
 step "database audit (grants, RLS, future booking)"
 node scripts/run-gate.mjs scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 
