@@ -238,3 +238,23 @@ New standing rule:
   apply-migration already labels it eventually consistent. No schema change.
 - Scope: no Windows-side work. The user unit lives in ~/.config/systemd/user,
   which is WSL-internal and required for autostart; nothing outside WSL is touched.
+
+## Addendum 2026-11-28 (autostart detected the wrong mechanism)
+
+- D33 systemdUser() used `systemctl --user is-system-running`, which exits
+  NON-ZERO for the state 'degraded'. Degraded means systemd IS running and an
+  unrelated user unit failed - here pulseaudio.service, pulseaudio.socket and a
+  transtream daphne unit. The CLI therefore reported "WSL without systemd",
+  installed a .bashrc hook, and never rewrote the unit, so the removed duplicate's
+  unit stayed enabled with its malformed Environment=PATH. Two autostart
+  mechanisms were live at once.
+- The predicate now runs `systemctl --user show-environment`, which succeeds in
+  degraded state and fails only when no user manager is reachable. That is the
+  property the branch actually needs. Availability, not health.
+- Cleanup verified by output, not by intent: the canonical unit says
+  "localhost, dynamic port", carries no Environment=PATH, and no bashrc hook
+  remains. The previous turn claimed this was done when it was not.
+- R17 A predicate must test the property the branch depends on. "Is the service
+  healthy" and "is the service available" are different questions, and conflating
+  them silently selects the wrong code path on any machine with an unrelated
+  failed unit.

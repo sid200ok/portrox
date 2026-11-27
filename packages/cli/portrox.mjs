@@ -154,7 +154,15 @@ function cmdLogs() {
 }
 
 const isWSL = () => PLAT === 'linux' && /microsoft|wsl/i.test((() => { try { return readFileSync('/proc/version', 'utf8'); } catch { return ''; } })());
-const systemdUser = () => PLAT === 'linux' && spawnSync('systemctl', ['--user', 'is-system-running'], { encoding: 'utf8' }).status === 0;
+const systemdUser = () => {
+  // is-system-running exits NON-ZERO for 'degraded', which means systemd IS
+  // running but an unrelated user unit failed (pulseaudio under WSL is common).
+  // Reading that as "no systemd" installed a shell hook and left a stale unit
+  // enabled. show-environment succeeds whenever a user manager is reachable,
+  // which is the property this predicate actually needs.
+  if (PLAT !== 'linux') return false;
+  return spawnSync('systemctl', ['--user', 'show-environment'], { encoding: 'utf8' }).status === 0;
+};
 
 function cmdEnableAutostart() {
   const node = process.execPath;
