@@ -12,7 +12,7 @@
   "seo": {
     "title": "Siddhant Kumar — Full-Stack · VoIP & Telephony · AI Engineer",
     "description": "Full-stack, VoIP and AI engineer. Asterisk/Kamailio PBX, FastAPI, React and LLM voice agents. Based in India, available for global remote roles.",
-    "og_image": ""
+    "og_image": "https://sid200ok.github.io/assets/media/covers/og-card.png"
   },
   "nav": {
     "services": true,

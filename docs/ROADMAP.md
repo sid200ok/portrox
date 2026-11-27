@@ -83,11 +83,14 @@ re-run sections 3 and 4, mark the old sign-off superseded, re-sign at the new
 commit.
 
 ### P1 - presentation
-No avatar and no og:image, so shared links still render without a picture. The
-card type now downgrades to summary instead of declaring a large image it cannot
-fill. Descriptions are derived from the owner's data and measured on decoded
-text: index 144, about 72, services 135, book 88, about-website 58 characters.
-Remaining: one real photograph and a 1200x630 share card.
+The share card is generated from profile.json by scripts/make-og.mjs: a
+deterministic 1200x630 PNG, zero dependencies, self-validated by re-parsing its
+own chunks. seo.og_image points at it and twitter:card is summary_large_image
+only because the image now ships. verify-meta parses the PNG and refuses a
+placeholder. Descriptions are derived from the owner's data and measured on
+decoded text: index 144, about 72, services 135, book 88, about-website 58.
+Optional, not a blocker: a personal photograph as the avatar. Upload it in the
+Studio (Settings -> Media -> set as avatar) and republish; nothing else changes.
 
 ### P2 - intake abuse surface
 portrox_payment_ref still has no rate limit and returns distinguishable error

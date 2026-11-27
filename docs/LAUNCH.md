@@ -52,14 +52,17 @@ Fri 15:00-18:00, Asia/Kolkata, 30 minutes, starting on :00 or :30.
 - [ ] Try 10:07: refused with a readable message about the time grid.
 - [ ] Delete the test booking; the slot is bookable again.
 
-## 4. Real image - MUST RE-RUN, nothing ships today
-- [ ] Studio -> Settings -> Media -> upload a real photo (PNG/JPEG/WebP).
-- [ ] Set as avatar, then Studio -> your site -> Publish. Publishing re-renders,
-      so the avatar ships without a separate build step.
-- [ ] Reload the live site: the avatar renders.
-- [ ] Paste the homepage URL into a chat to yourself: the preview card shows an
-      image, not an empty box.
-- [ ] Try uploading a .svg: it must be refused.
+## 4. Real image - the share card ships; the portrait is optional
+- [x] The 1200x630 share card is generated from profile.json and ships in the
+      build. verify-meta parses its PNG header and refuses a placeholder.
+- [x] twitter:card is summary_large_image only because that image exists.
+- [ ] Paste the homepage URL into a chat to yourself: the preview card shows the
+      name, headline and site address - not an empty box.
+- [ ] Open the card file directly in a browser and read it. If the wording is not
+      how you want to be introduced, edit data/profile.json and re-run
+      `node scripts/make-og.mjs`, then republish.
+- [ ] OPTIONAL: upload a personal photo (PNG/JPEG/WebP) in Studio -> Settings ->
+      Media, set as avatar, republish. Try a .svg: it must be refused.
 
 ## 5. Your own words
 - [x] Studio -> Settings -> Intro -> Load defaults -> edit -> Preview (carried forward)
