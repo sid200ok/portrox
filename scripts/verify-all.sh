@@ -78,13 +78,13 @@ step "rpc (positive)"
 node scripts/run-gate.mjs scripts/verify-rpc.mjs --positive || stop "RPC positive gate failed — Register then Publish the site in the Studio"
 
 step "authenticated attack surface"
-node scripts/run-gate.mjs scripts/audit-auth.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+node scripts/run-gate.mjs scripts/audit-auth.mjs || stop "authenticated attack surface failed - signup, anonymous sign-in or a write policy is not provably guarded"
 step "schema parity (mirrors vs declared legacy)"
-node scripts/run-gate.mjs scripts/verify-migrations.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+node scripts/run-gate.mjs scripts/verify-migrations.mjs || stop "schema parity failed - a migration is neither byte-mirrored nor declared legacy"
 step "availability sync"
-node scripts/run-gate.mjs scripts/sync-availability.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+node scripts/run-gate.mjs scripts/sync-availability.mjs || stop "availability sync failed - the table does not match availability.json"
 step "availability enforcement"
-node scripts/run-gate.mjs scripts/verify-availability.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
+node scripts/run-gate.mjs scripts/verify-availability.mjs || stop "availability enforcement failed - booking rules are not provably enforced"
 step "database audit (grants, RLS, future booking)"
 node scripts/run-gate.mjs scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 
@@ -110,4 +110,4 @@ fi
 step "secrets"
 bash scripts/audit-secrets.sh || stop "secret audit failed"
 
-printf '\nPORTROX SUITE VERIFIED (phases 0-3c)\n'
+printf 'PORTROX SUITE VERIFIED (%s gates)\n' "$(grep -c '^[[:space:]]*step ' "$0" 2>/dev/null || echo '?')"

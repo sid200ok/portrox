@@ -2,23 +2,24 @@
  * Proves booking is CORRECT, not merely usable.
  *
  *   node scripts/verify-availability.mjs               # full proof (1 intake)
- *   node scripts/verify-availability.mjs --no-intake   # refusals + trigger only
+ *   node scripts/verify-availability.mjs --no-intake   # refusals + fixtures only
  *
- * CORRECTIONS, each read from source rather than assumed:
- *  1. expectRefusal had no `site` parameter, so the "unknown site" case silently
- *     sent the REAL site id with a VALID slot and was accepted. The label lied.
- *     `site` is now threaded through, and every refusal prints the identity it
- *     actually used.
- *  2. The limiter is NOT a counter table. portrox_submit counts live rows in
- *     public.submissions for (site, email OR ip) in the last hour, limit 5.
- *     portrox_private contains zero tables. Because every gate deletes its
- *     probes, cleanup RESETS the limiter - so the full end-to-end proof is safe
- *     by default. The earlier claim that the suite inherently spends five was
- *     wrong; the five rows were this gate's own un-cleaned residue.
- *  3. Ids are recorded from EVERY response, success or failure, and the gate
- *     aborts on the first unexpected success instead of writing more rows.
- *  4. The live function body is asserted first, so "migration not applied" is
- *     one line instead of fourteen cascading failures.
+ * Corrections carried forward, each read from source rather than assumed:
+ *  1. expectRefusal once had no `site` parameter, so the "unknown site" case sent
+ *     the REAL site id with a VALID slot. Every refusal now prints the identity
+ *     it used.
+ *  2. The limiter is a count of LIVE submission rows for (site, email OR ip) in
+ *     the last hour, limit 5 - not a counter table. Probe cleanup resets it, so
+ *     the end-to-end proof is safe by default.
+ *  3. Ids are recorded from EVERY response and the gate aborts on the first
+ *     unexpected success instead of writing more rows.
+ *  4. The live function body is asserted first, so "migration not applied" is one
+ *     line instead of fourteen.
+ *
+ * NEW: too_many_pending is now PROVEN with zero anonymous intake. Three
+ * submissions and three pending appointments are placed as admin at distinct
+ * valid slots; a fourth hold through the RPC must be refused. The fixture is
+ * removed BEFORE the intake proof so the 5/hour limiter is untouched.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { loadConfig, accessToken } from '../packages/cli/config-store.mjs';
@@ -82,7 +83,7 @@ const countAppts = async () => Number((await q('select count(*)::int as n from p
 const baseSubs = await countSubs();
 const baseAppts = await countAppts();
 console.log('baseline: submissions=' + baseSubs + ' appointments=' + baseAppts);
-if (baseSubs >= 5) note('submissions already at ' + baseSubs + ' - the intake limiter (5/hour) may refuse. Run scripts/clean-probes.mjs if these are probes.');
+if (baseSubs >= 4) note('submissions already at ' + baseSubs + ' - the intake limiter (5 live rows/hour) may refuse. Clean probes first.');
 
 class Abort extends Error {}
 const expectRefusal = async (label, iso, minutes, codes, site) => {
@@ -132,16 +133,13 @@ try {
   await expectRefusal('visitor-chosen duration', anchor, DUR + 5, 'bad_duration');
   await expectRefusal('four-hour block attempt', anchor, DUR === 240 ? 235 : 240, 'bad_duration');
   await expectRefusal('unknown site', anchor, DUR, 'site_not_published', UNKNOWN);
-  note('too_many_pending is NOT exercised: paid_booking is false, so no pending row can exist. Unproven in this configuration.');
 
   console.log('\n-- the slot is held, and overlap is refused by the DATABASE --');
   const hold = AV.nextValidSlot(rules, { daysAhead: 60 });
   const ins = await q('insert into public.appointments (site_id, starts_at, duration_minutes, status) values ('
     + lit(ID) + ', ' + lit(hold) + '::timestamptz, ' + DUR + ", 'confirmed') returning id::text as id");
-  const holdId = ins && ins[0] && ins[0].id;
-  created.push({ a: holdId, s: null });
+  created.push({ a: ins && ins[0] && ins[0].id, s: null });
   ok('admin holding row at ' + AV.slotText(hold, rules) + ' (no anonymous intake)');
-
   await expectRefusal('same slot via RPC', hold, DUR, 'slot_taken');
 
   const overlap = new Date(Date.parse(hold) + (DUR / 2) * 60000).toISOString();
@@ -156,6 +154,28 @@ try {
   }
   if (stray) { created.push({ a: stray, s: null }); fail('overlapping row was ACCEPTED - trigger did not fire'); }
   else if (refused) ok('overlapping range refused by the trigger (23P01)');
+
+  console.log('\n-- an unpaid requester cannot freeze the calendar --');
+  const pendAppts = [], pendSubs = [];
+  try {
+    let cursor = Date.parse(AV.nextValidSlot(rules, { daysAhead: 90 }));
+    for (let i = 0; i < 3; i++) {
+      const iso = new Date(cursor).toISOString();
+      const srow = await q("insert into public.submissions (site_id, kind, full_name, email, message) values ("
+        + lit(ID) + ", 'booking', 'Probe', 'probe@example.invalid', 'pending cap probe') returning id::text as id");
+      const sid = srow[0].id; pendSubs.push(sid); created.push({ a: null, s: sid });
+      const arow = await q('insert into public.appointments (site_id, submission_id, starts_at, duration_minutes, status) values ('
+        + lit(ID) + ', ' + lit(sid) + '::uuid, ' + lit(iso) + '::timestamptz, ' + DUR + ", 'pending') returning id::text as id");
+      const aid = arow[0].id; pendAppts.push(aid); created.push({ a: aid, s: null });
+      cursor = Date.parse(AV.snapSlot(cursor + 86400000, rules));
+    }
+    ok('3 pending holds placed by admin at distinct valid slots (no anonymous intake)');
+    await expectRefusal('fourth pending hold', new Date(cursor).toISOString(), DUR, 'too_many_pending');
+  } finally {
+    for (const id of pendAppts) { try { await q('delete from public.appointments where id = ' + lit(id) + '::uuid'); } catch (e) { fail('pending appt cleanup: ' + e.message); } }
+    for (const id of pendSubs) { try { await q('delete from public.submissions where id = ' + lit(id) + '::uuid'); } catch (e) { fail('pending sub cleanup: ' + e.message); } }
+    ok('pending fixture removed before the intake proof, so the limiter is untouched');
+  }
 
   if (INTAKE) {
     console.log('\n-- end to end through the anonymous door (one intake, cleaned up) --');
