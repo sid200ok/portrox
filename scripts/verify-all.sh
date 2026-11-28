@@ -95,6 +95,8 @@ step "search snippets and share cards"
 node scripts/run-gate.mjs scripts/verify-meta.mjs || stop "a page has a weak snippet or declares a share card it cannot fill"
 step "acceptance ledger consistency"
 node scripts/run-gate.mjs scripts/verify-acceptance.mjs || stop "the launch acceptance record is inconsistent - a sign-off with open boxes or a stale commit"
+step "site intake state (pause/resume)"
+node scripts/run-gate.mjs scripts/verify-site-state.mjs || stop "pause/resume does not control intake, or the site was left in the wrong state"
 step "database audit (grants, RLS, future booking)"
 node scripts/run-gate.mjs scripts/audit-db.mjs || stop "database audit failed - grants, RLS or booking are not provably correct"
 

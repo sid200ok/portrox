@@ -96,7 +96,7 @@ DO NOT PRESS, during acceptance: Backup -> Replace key or Clear key - GitHub ops
 those actions mutate real state.
 
 ### 8.1 Login and shell
-- [ ] The login page renders. Console clean.
+- [x] The login page renders. Console clean.
 - [ ] Log in with your rotated credentials. The dashboard renders. Console clean.
 - [ ] The dashboard checklist shows real state: account connected, schema
       complete, 1 of 2 free projects, site bound to the project.
